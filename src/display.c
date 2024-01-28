@@ -52,6 +52,11 @@ struct display_device *light_display_init_device(
 {
         light_trace("(driver=%s, width=%d, height=%d, bpp=%d)",
                                 driver_ctx->driver->name, width, height, bpp);
+        // TODO: this should be an ASSERT statement
+        if(next_device_id >= LIGHT_DISPLAY_MAX_DEVICES) {
+                light_error("could not create new device: max devices reached (%d)", next_device_id);
+                return NULL;
+        }
         light_object_init(&dev->header, &ltype_display_device);
         dev->device_id = next_device_id++;
         dev->width = width;
