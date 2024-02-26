@@ -36,7 +36,7 @@ static volatile uint16_t next_device_id;
 void light_display_init()
 {
         next_device_id = 0;
-        light_object_init(&device_root.header, &ltype_display_device_root);
+        light_object_init(&device_root.header, &ltype_display_device_root, "root_device","");
 }
 struct display_device *light_display_create_device(struct display_driver *driver, uint16_t width,
                                                 uint16_t height, uint8_t bpp)
@@ -57,8 +57,9 @@ struct display_device *light_display_init_device(
                 light_error("could not create new device: max devices reached (%d)", next_device_id);
                 return NULL;
         }
-        light_object_init(&dev->header, &ltype_display_device);
-        dev->device_id = next_device_id++;
+        uint8_t device_id = next_device_id++;
+        light_object_init(&dev->header, &ltype_display_device, "display_device:%d", device_id);
+        dev->device_id = device_id;
         dev->width = width;
         dev->height = height;
         dev->bpp = bpp;
@@ -70,9 +71,10 @@ void light_display_set_render_context(struct display_device *dev, struct rend_co
         light_trace("device: %s, ctx: %s", dev->header.id, ctx->name);
         dev->render_ctx = ctx;
 }
+// TODO this API is now partially redundant, 'name' is never used
 void light_display_add_device(struct display_device *dev, uint8_t *name)
 {
-        light_object_add(&dev->header, &device_root.header, "display_device:%s", name);
+        light_object_add(&dev->header, &device_root.header);
         light_info("new device initialized: '%s', driver: '%s'", dev->header.id, dev->driver_ctx->driver->name);
 }
 void light_display_command_init(struct display_device *dev)
