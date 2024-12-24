@@ -18,7 +18,7 @@ target_link_libraries(
         light_display PUBLIC
         rend
         light_display_ioport
-        light_framework
+        light_core
 )
 
 if(LIGHT_SYSTEM STREQUAL PICO_SDK)

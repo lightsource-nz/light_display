@@ -36,19 +36,37 @@ static volatile uint16_t next_device_id;
 void light_display_init()
 {
         next_device_id = 0;
-        light_object_init(&device_root.header, &ltype_display_device_root, "root_device","");
+        light_object_init(&device_root.header, &ltype_display_device_root);
+        light_object_add(&device_root.header, NULL, "root_device");
 }
 struct display_device *light_display_create_device(struct display_driver *driver, uint16_t width,
-                                                uint16_t height, uint8_t bpp)
+                                                uint16_t height, uint8_t bpp, uint8_t *format, ...)
 {
         struct display_device *dev = light_object_alloc(sizeof(struct display_device));
         struct display_driver_context *driver_ctx = driver->spawn_context();
-        return light_display_init_device(dev, driver_ctx, width, height, bpp);
+        
+        va_list vargs;
+
+        va_start(vargs, format);
+        return light_display_init_device_va(dev, driver_ctx, width, height, bpp, format, vargs);
+        va_end(vargs);
 }
 struct display_device *light_display_init_device(
                 struct display_device *dev,
                 struct display_driver_context *driver_ctx,
-                uint16_t width, uint16_t height, uint8_t bpp)
+                uint16_t width, uint16_t height, uint8_t bpp, uint8_t *format, ...)
+{
+        
+        va_list vargs;
+
+        va_start(vargs, format);
+        return light_display_init_device_va(dev, driver_ctx, width, height, bpp, format, vargs);
+        va_end(vargs);
+}
+struct display_device *light_display_init_device_va(
+                struct display_device *dev,
+                struct display_driver_context *driver_ctx,
+                uint16_t width, uint16_t height, uint8_t bpp, uint8_t *format, va_list args)
 {
         light_trace("(driver=%s, width=%d, height=%d, bpp=%d)",
                                 driver_ctx->driver->name, width, height, bpp);
@@ -58,24 +76,20 @@ struct display_device *light_display_init_device(
                 return NULL;
         }
         uint8_t device_id = next_device_id++;
-        light_object_init(&dev->header, &ltype_display_device, "display_device:%d", device_id);
+        light_object_init(&dev->header, &ltype_display_device);
         dev->device_id = device_id;
         dev->width = width;
         dev->height = height;
         dev->bpp = bpp;
         dev->driver_ctx = driver_ctx;
+
+        light_object_add_va(&dev->header, &device_root.header, format, args);
         return dev;
 }
 void light_display_set_render_context(struct display_device *dev, struct rend_context *ctx)
 {
         light_trace("device: %s, ctx: %s", dev->header.id, ctx->name);
         dev->render_ctx = ctx;
-}
-// TODO this API is now partially redundant, 'name' is never used
-void light_display_add_device(struct display_device *dev, uint8_t *name)
-{
-        light_object_add(&dev->header, &device_root.header);
-        light_info("new device initialized: '%s', driver: '%s'", dev->header.id, dev->driver_ctx->driver->name);
 }
 void light_display_command_init(struct display_device *dev)
 {

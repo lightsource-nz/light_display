@@ -16,6 +16,6 @@
 
 #define LIGHT_DISPLAY_INFO_STR              "light_display v" LIGHT_DISPLAY_VERSION_STR
 
-Light_Module_Declare(light_display)
+Light_Module_Declare(light_display);
 
 #endif
