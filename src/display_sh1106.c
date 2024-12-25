@@ -120,10 +120,9 @@ void light_display_sh1106_update_screen(struct display_device *dev)
 struct display_device *light_display_sh1106_create_device(uint8_t *name, uint16_t width, uint16_t height, uint8_t bpp, struct io_context *io)
 {
         // TODO validate *io
-        struct display_device *dev = light_display_create_device(light_display_driver_sh1106(), width, height, bpp);
+        struct display_device *dev = light_display_create_device(light_display_driver_sh1106(), width, height, bpp, name);
         struct sh1106_state *state = (struct sh1106_state *) dev->driver_ctx->state;
         state->io_ctx = io;
-        light_display_add_device(dev, name);
 
         return dev;    
 }
