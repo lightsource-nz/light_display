@@ -8,6 +8,6 @@
 
 #define LIGHT_DISPLAY_PO13_INFO_STR              "light_display_po13 v" LIGHT_DISPLAY_PO13_VERSION_STR
 
-Light_Module_Declare(light_display_po13)
+Light_Module_Declare(light_display_po13);
 
 #endif

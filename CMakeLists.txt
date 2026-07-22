@@ -16,5 +16,4 @@ target_link_libraries(
         light_display_po13 INTERFACE
         light_display
         light_display_sh1107
-        light_framework
 )
