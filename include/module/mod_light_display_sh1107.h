@@ -8,6 +8,6 @@
 
 #define LIGHT_DISPLAY_SH1107_INFO_STR              "light_display_sh1107 v" LIGHT_DISPLAY_SH1107_VERSION_STR
 
-Light_Module_Declare(light_display_sh1107)
+Light_Module_Declare(light_display_sh1107);
 
 #endif

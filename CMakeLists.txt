@@ -15,5 +15,4 @@ target_sources(
 target_link_libraries(
         light_display_sh1107 INTERFACE
         light_display
-        light_framework
 )
