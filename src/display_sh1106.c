@@ -120,11 +120,17 @@ void light_display_sh1106_update_screen(struct display_device *dev)
 struct display_device *light_display_sh1106_create_device(uint8_t *name, uint16_t width, uint16_t height, uint8_t bpp, struct io_context *io)
 {
         // TODO validate *io
-        struct display_device *dev = light_display_create_device(light_display_driver_sh1106(), width, height, bpp, name);
-        struct sh1106_state *state = (struct sh1106_state *) dev->driver_ctx->state;
+        // io_ctx must be attached to the driver state before the device is registered: adding
+        // it to the object tree (via light_display_init_device()) immediately triggers
+        // init_device()/reset(), which read state->io_ctx -- light_display_create_device() does
+        // both steps in one call, too late to set io_ctx first, so the lower-level entry point
+        // is used here instead
+        struct display_device *dev = light_object_alloc(sizeof(struct display_device));
+        struct display_driver_context *driver_ctx = _sh1106_spawn_context();
+        struct sh1106_state *state = (struct sh1106_state *) driver_ctx->state;
         state->io_ctx = io;
 
-        return dev;    
+        return light_display_init_device(dev, driver_ctx, width, height, bpp, name);
 }
 
 void light_display_sh1106_command_set_column_addr(struct display_device *dev, uint8_t column)
