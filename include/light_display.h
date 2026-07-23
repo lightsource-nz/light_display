@@ -59,7 +59,7 @@ extern struct display_device *light_display_init_device(
                 struct display_driver_context *driver_ctx,
                 uint16_t width, uint16_t height, uint8_t bpp,
                 uint8_t *format, ...);
-                extern struct display_device *light_display_init_device_va(
+extern struct display_device *light_display_init_device_va(
                 struct display_device *dev,
                 struct display_driver_context *driver_ctx,
                 uint16_t width, uint16_t height, uint8_t bpp,
