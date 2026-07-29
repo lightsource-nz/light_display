@@ -2,6 +2,10 @@
 
 #include "light_display_sh1107_internal.h"
 
+// SH1107's GDDRAM depth is a fixed hardware constant (16 pages), not something this
+// driver's addressing scheme configures -- used to size the per-column burst buffer
+#define SH1107_MAX_PAGES 16
+
 struct sh1107_state {
         struct io_context *io_ctx;
         uint8_t addrmode;
@@ -9,6 +13,9 @@ struct sh1107_state {
         uint8_t column_address;
         uint16_t n_pages;
         uint16_t n_columns;
+        // driver-level preference, not chip state -- set once via
+        // light_display_sh1107_set_sweep_direction(), survives resets
+        uint8_t sweep_direction;
 };
 
 static struct display_driver_context *_sh1107_spawn_context();
@@ -36,6 +43,10 @@ static struct display_driver_context *_sh1107_spawn_context()
         struct display_driver_context *ctx = light_alloc(sizeof(struct display_driver_context));
         ctx->driver = light_display_driver_sh1107();
         ctx->state = light_alloc(sizeof(struct sh1107_state));
+        // light_alloc() is a plain malloc(), not zeroed -- sweep_direction must be set
+        // explicitly rather than relying on it happening to start at
+        // SH1107_SWEEP_FORWARD (0)
+        ((struct sh1107_state *) ctx->state)->sweep_direction = SH1107_SWEEP_FORWARD;
         return ctx;
 }
 
@@ -57,11 +68,38 @@ static void _sh1107_update(struct display_device *dev)
 {
         light_display_sh1107_update_screen(dev);
 }
+// maps sweep index i (0 .. n_columns-1) to the actual hardware column to visit at that
+// step, per state->sweep_direction
+static uint16_t _sweep_column(struct sh1107_state *state, uint16_t i)
+{
+        if(state->sweep_direction == SH1107_SWEEP_REVERSE)
+                return state->n_columns - 1 - i;
+        return i;
+}
+void light_display_sh1107_set_sweep_direction(struct display_device *dev, uint8_t direction)
+{
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
+        state->sweep_direction = direction;
+}
+// unconditionally sends both column-address nibble commands, low nibble first --
+// matches the reference driver's show() exactly, which always sends both regardless of
+// the previous column, rather than trusting a "skip if unchanged" optimization
+static void _send_column_addr_unconditional(struct display_device *dev, uint8_t column)
+{
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
+        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_LOW + (column & 0x0F));
+        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_HIGH + (column >> 4));
+        state->column_address = column;
+}
 
 void light_display_sh1107_reset_device(struct display_device *dev)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
         light_display_ioport_signal_reset(state->io_ctx);
+        // straightforward, non-rotated mapping: physical column = canvas x directly,
+        // physical page = group of 8 canvas y rows. dev->width/height are expected to
+        // already describe the panel's real physical orientation (PO13 is 64x128
+        // portrait -- see light_display_po13.h)
         state->n_pages = light_display_sh1107_y_to_pages(dev->height);
         state->n_columns = light_display_sh1107_x_to_columns(dev->width);
         state->addrmode = SH1107_ADDRMODE_VERTICAL;
@@ -73,8 +111,11 @@ void light_display_sh1107_chip_setup(struct display_device *dev)
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
         light_display_sh1107_reset_device(dev);
         light_display_sh1107_command_set_display_on(dev, false);        // display OFF
-        light_display_sh1107_command_set_column_addr(dev, state->column_address);         // set column address (0x0)
-        light_display_sh1107_command_set_page_addr(dev, state->page_address);           // set page address (0x0)
+        // state->column_address/page_address are still the 0xFF sentinel reset_device()
+        // just set (meaning "unknown"/"not yet sent") -- these calls must initialize to
+        // an actual valid address (0), not resend that sentinel as if it were one
+        light_display_sh1107_command_set_column_addr(dev, 0);           // set column address (0x0)
+        light_display_sh1107_command_set_page_addr(dev, 0);             // set page address (0x0)
         light_display_sh1107_command_set_start_line(dev, 0x0);          // set display start line (0)
         light_display_sh1107_command_set_contrast(dev, 128);            // set contrast level (128)
         light_display_sh1107_command_set_addrmode(dev, state->addrmode);       // RAM addressing mode (vertical)
@@ -94,12 +135,24 @@ void light_display_sh1107_clear_screen(struct display_device *dev, uint8_t value
 {
         // ASSERT dev->driver_ctx->driver === &_driver_sh1107
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_sh1107_command_set_page_addr(dev, 0);
-        for(uint16_t column = 0; column < state->n_columns; column++) {
-                light_display_sh1107_command_set_column_addr(dev, column);
-                for(uint16_t page = 0; page < state->n_pages; page++) {
-                        light_display_sh1107_write_data(dev, value);
-                }
+        uint8_t page_buf[SH1107_MAX_PAGES];
+        for(uint16_t i = 0; i < state->n_pages && i < SH1107_MAX_PAGES; i++)
+                page_buf[i] = value;
+
+        for(uint16_t i = 0; i < state->n_columns; i++) {
+                uint16_t column = _sweep_column(state, i);
+                _send_column_addr_unconditional(dev, column);
+                // page address is (re-)armed once per column, then the whole column's
+                // worth of pages goes out as a single burst -- the chip auto-increments
+                // its own internal page pointer between bytes within one continuous
+                // CS-low transfer in vertical addressing mode (this is exactly how the
+                // reference driver for this panel does it). invalidate the tracked page
+                // first: write_data()'s old per-byte bookkeeping would have wrapped
+                // back to 0 by construction after n_pages writes, so set_page_addr(dev,
+                // 0) would otherwise see "already at 0" and skip sending the command
+                state->page_address = 0xFF;
+                light_display_sh1107_command_set_page_addr(dev, 0);
+                light_display_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
         }
 }
 void light_display_sh1107_update_screen(struct display_device *dev)
@@ -107,14 +160,42 @@ void light_display_sh1107_update_screen(struct display_device *dev)
         // ASSERT dev->driver_ctx->driver === &_driver_sh1107
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
 
-        // write out each column page by page, starting with column 0.
-        // page address increments automatically, and wraps at the end of each column
-        light_display_sh1107_command_set_page_addr(dev, 0);
-        for(uint16_t column = 0; column < state->n_columns; column++) {
-                light_display_sh1107_command_set_column_addr(dev, column);
-                for(uint16_t page = 0; page < state->n_pages; page++) {
-                        light_display_sh1107_write_data(dev, dev->render_ctx->buffer[column * state->n_pages + page]);
+        // straightforward, non-rotated mapping: physical column = canvas x directly.
+        // rend's buffer is row-major with horizontal bit-packing (each byte holds 8
+        // pixels from one row: buffer[y * width_bytes + x/8], bit x%8 set for the
+        // LEFTMOST pixel of that group), but SH1107 RAM in vertical addressing mode is
+        // column/page addressed, where each byte written covers 8 *vertically* stacked
+        // pixels within a single 1-pixel-wide column -- these are different bit
+        // orderings/axes entirely, so each output byte is assembled bit-by-bit from
+        // the source buffer rather than copied across directly
+        uint16_t width_bytes = (dev->width + 7) / 8;
+        const uint8_t *src = dev->render_ctx->buffer;
+        uint8_t page_buf[SH1107_MAX_PAGES];
+
+        for(uint16_t i = 0; i < state->n_columns; i++) {
+                uint16_t column = _sweep_column(state, i);
+                _send_column_addr_unconditional(dev, column);
+
+                for(uint16_t page = 0; page < state->n_pages && page < SH1107_MAX_PAGES; page++) {
+                        uint8_t out = 0;
+                        for(uint8_t bit = 0; bit < 8; bit++) {
+                                uint16_t y = page * 8 + bit;
+                                if(y >= dev->height)
+                                        break;
+                                uint8_t src_byte = src[y * width_bytes + column / 8];
+                                if(src_byte & (1 << (column % 8)))
+                                        out |= (1 << bit);
+                        }
+                        page_buf[page] = out;
                 }
+                // one continuous burst per column: the chip auto-increments its own
+                // internal page pointer between bytes within a single CS-low transfer
+                // in vertical addressing mode -- see clear_screen() for why the
+                // per-byte page-address resend this replaces was there in the first
+                // place, and why it's safe to drop for a burst
+                state->page_address = 0xFF;
+                light_display_sh1107_command_set_page_addr(dev, 0);
+                light_display_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
         }
 }
 struct display_device *light_display_sh1107_create_device(uint8_t *name, uint16_t width, uint16_t height, uint8_t bpp, struct io_context *io)
@@ -136,10 +217,13 @@ struct display_device *light_display_sh1107_create_device(uint8_t *name, uint16_
 void light_display_sh1107_command_set_column_addr(struct display_device *dev, uint8_t column)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        if((state->column_address & 0xF0) != (column & 0xF0))
-                light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_HIGH + (column >> 4));
+        // low nibble must be sent before high, matching Waveshare's reference driver
+        // for this panel -- every other command byte/order in this file was verified
+        // against that reference and matched exactly except this one
         if((state->column_address & 0x0F) != (column & 0x0F))
                 light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_LOW + (column & 0x0F));
+        if((state->column_address & 0xF0) != (column & 0xF0))
+                light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_HIGH + (column >> 4));
         state->column_address = column;
 }
 void light_display_sh1107_command_set_addrmode(struct display_device *dev, uint8_t mode)
