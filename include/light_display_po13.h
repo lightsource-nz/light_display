@@ -5,6 +5,10 @@
 
 #include <stdint.h>
 
+// the Pico-OLED-1.3's glass is physically portrait (64 wide x 128 tall), per direct
+// on-device observation -- an earlier "landscape" conclusion was based on misreading a
+// sideways photo of the board and led to a lot of unnecessary chasing in the SH1107
+// driver's addressing logic
 #define PO13_WIDTH                      64
 #define PO13_HEIGHT                     128
 #define PO13_BPP                        1
