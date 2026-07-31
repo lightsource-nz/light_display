@@ -15,6 +15,8 @@
 
 #define PO13_PIN_I2C_SCL                7
 #define PO13_PIN_I2C_SDA                6
+// common default 7-bit I2C address for this controller family (SA0/D-C# pin tied low)
+#define PO13_I2C_ADDR                   0x3C
 
 #define PO13_PIN_SPI_SCK                10
 #define PO13_PIN_SPI_MOSI               11

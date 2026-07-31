@@ -7,7 +7,7 @@
 struct io_context *light_display_po13_setup_io_i2c(uint8_t port_id)
 {
         return light_display_ioport_setup_io_i2c(
-                port_id, PO13_PIN_RESET, PO13_PIN_CS, PO13_PIN_I2C_SCL, PO13_PIN_I2C_SDA);
+                port_id, PO13_PIN_RESET, PO13_I2C_ADDR, PO13_PIN_I2C_SCL, PO13_PIN_I2C_SDA);
 }
 struct io_context *light_display_po13_setup_io_spi_4p(uint8_t port_id)
 {
