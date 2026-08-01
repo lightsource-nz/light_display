@@ -22,6 +22,17 @@ struct display_driver
         void (*reset)(struct display_device *);
         void (*update)(struct display_device *);
         void (*clear)(struct display_device *, uint8_t value);
+        // all three optional -- NULL means the driver hasn't implemented async updates yet,
+        // in which case light_display_command_update_async() falls back to the blocking
+        // update() above
+        void (*update_async_start)(struct display_device *);
+        // advances the in-flight update as far as it can go right now; returns true once
+        // the whole update has completed (or been aborted -- see the timeout handling in
+        // individual drivers), false if there's still more to do
+        bool (*update_async_poll)(struct display_device *);
+        // pure query, no side effects -- unlike update_async_poll(), safe to call just to
+        // check status without accidentally advancing the state machine
+        bool (*update_async_is_active)(struct display_device *);
 };
 struct display_driver_context
 {
@@ -69,5 +80,12 @@ extern void light_display_command_init(struct display_device *dev);
 extern void light_display_command_reset(struct display_device *dev);
 extern void light_display_command_update(struct display_device *dev);
 extern void light_display_command_clear(struct display_device *dev, uint16_t value);
+// starts a non-blocking update: returns immediately, and the transfer is driven to
+// completion in the background by light_display's own periodic task (see module.c). falls
+// back to a normal blocking update() if the driver hasn't implemented async support.
+// don't mutate dev->render_ctx->buffer while an update is in flight (rend has no
+// double-buffering) -- check light_display_update_in_progress() first if unsure
+extern void light_display_command_update_async(struct display_device *dev);
+extern bool light_display_update_in_progress(struct display_device *dev);
 
 #endif

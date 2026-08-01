@@ -39,6 +39,10 @@ void light_display_init()
         light_object_init(&device_root.header, &ltype_display_device_root);
         light_object_add(&device_root.header, NULL, "root_device");
 }
+struct display_device_root *light_display_device_get_root()
+{
+        return &device_root;
+}
 struct display_device *light_display_create_device(struct display_driver *driver, uint16_t width,
                                                 uint16_t height, uint8_t bpp, uint8_t *format, ...)
 {
@@ -97,18 +101,67 @@ void light_display_command_init(struct display_device *dev)
         dev->driver_ctx->driver->init_device(dev);
         dev->driver_ctx->driver->clear(dev, 0);
 }
+// every entry point below that isn't update_async_poll() itself must not run while an
+// async update is in flight -- reset/clear/a plain sync update would stomp CS/column-address
+// state out from under an in-progress DMA transfer. rather than duplicate this guard in
+// every driver, it lives here once: block (briefly) until any in-flight update finishes
+// before doing anything else. this is a bounded, cooperative drain (repeatedly calling the
+// driver's own poll function), not a busy-wait on hardware -- the same mechanism the
+// scheduler's periodic task uses, just run inline instead of once-per-tick
+static void _light_display_drain_async(struct display_device *dev)
+{
+        const struct display_driver *drv = dev->driver_ctx->driver;
+        if(!drv->update_async_poll || !drv->update_async_is_active)
+                return;
+        while(drv->update_async_is_active(dev)) {
+                drv->update_async_poll(dev);
+        }
+}
 void light_display_command_update(struct display_device *dev)
 {
         light_debug("device: %s", dev->header.id);
+        _light_display_drain_async(dev);
         dev->driver_ctx->driver->update(dev);
+}
+void light_display_command_update_async(struct display_device *dev)
+{
+        light_debug("device: %s", dev->header.id);
+        const struct display_driver *drv = dev->driver_ctx->driver;
+        if(!drv->update_async_start) {
+                // driver hasn't implemented async yet -- fall back to a normal blocking
+                // update rather than silently doing nothing
+                drv->update(dev);
+                return;
+        }
+        drv->update_async_start(dev);
+}
+bool light_display_update_in_progress(struct display_device *dev)
+{
+        const struct display_driver *drv = dev->driver_ctx->driver;
+        if(!drv->update_async_is_active)
+                return false;
+        return drv->update_async_is_active(dev);
+}
+void light_display_poll_async_updates(void)
+{
+        for(uint16_t i = 0; i < next_device_id; i++) {
+                struct display_device *dev = device_root.device[i];
+                if(!dev)
+                        continue;
+                const struct display_driver *drv = dev->driver_ctx->driver;
+                if(drv->update_async_poll)
+                        drv->update_async_poll(dev);
+        }
 }
 void light_display_command_reset(struct display_device *dev)
 {
         light_debug("device: %s", dev->header.id);
+        _light_display_drain_async(dev);
         dev->driver_ctx->driver->reset(dev);
 }
 void light_display_command_clear(struct display_device *dev, uint16_t value)
 {
         light_debug("device: %s, value: %d", dev->header.id, value);
+        _light_display_drain_async(dev);
         dev->driver_ctx->driver->clear(dev, value);
 }
