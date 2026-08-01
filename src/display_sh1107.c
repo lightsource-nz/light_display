@@ -35,6 +35,12 @@ struct sh1107_state {
         bool update_in_progress;
         uint16_t update_column_index;
         uint32_t update_start_time_ms;
+        // captured once in _sh1107_update_async_start(), not re-read from
+        // dev->render_ctx->buffer on every column -- an in-flight transfer must stay
+        // immune to the caller swapping ctx->buffer mid-update (see
+        // rend_context_swap_buffers()), otherwise later-kicked columns would read from a
+        // different frame than earlier ones, tearing the transfer
+        const uint8_t *update_source_buffer;
         // moved off the stack from what used to be update_screen()'s local page_buf: an
         // async burst is read by DMA after the function that filled it returns, so it can't
         // be stack memory -- it has to survive at least until burst_is_complete()
@@ -238,7 +244,7 @@ static void _sh1107_update_kick_column(struct display_device *dev, uint16_t swee
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
         uint16_t width_bytes = (dev->width + 7) / 8;
-        const uint8_t *src = dev->render_ctx->buffer;
+        const uint8_t *src = state->update_source_buffer;
         uint16_t column = _sweep_column(state, sweep_index);
 
         _send_column_addr_unconditional(dev, column);
@@ -269,6 +275,7 @@ static void _sh1107_update_async_start(struct display_device *dev)
         state->update_in_progress = true;
         state->update_column_index = 0;
         state->update_start_time_ms = light_platform_get_time_since_init();
+        state->update_source_buffer = dev->render_ctx->buffer;
         _sh1107_update_kick_column(dev, 0);
 }
 // intended to drain as many already-completed columns as possible in one call, so a fast
