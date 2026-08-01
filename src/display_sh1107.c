@@ -5,6 +5,19 @@
 // SH1107's GDDRAM depth is a fixed hardware constant (16 pages), not something this
 // driver's addressing scheme configures -- used to size the per-column burst buffer
 #define SH1107_MAX_PAGES 16
+// upper bound on how long one FULL async update (all columns) should ever take -- if it
+// hasn't completed within this window, something is genuinely stuck (miswired DMA channel,
+// hardware fault) and the scheduler must not be allowed to wait on it forever.
+// NOT just "one column's burst time": update_async_poll()'s drain loop only advances past a
+// column once burst_is_complete() sees it finished, and it checks that once per scheduler
+// tick (LIGHT_TASK_POLL_INTERVAL_MS, 1ms) -- a column's burst (tens to low hundreds of
+// microseconds) almost always finishes well within that tick, so in practice this ends up
+// pacing at roughly one column per tick regardless of actual bus speed, not one burst's
+// worth of time for the whole sweep. worst case is therefore closer to
+// (n_columns * tick interval) than to a single burst's duration -- for a 128-column-wide
+// panel (SH1107's max) that's ~128ms, so this needs real headroom above that, not a value
+// sized for one burst
+#define SH1107_ASYNC_TIMEOUT_MS 500
 
 struct sh1107_state {
         struct io_context *io_ctx;
@@ -16,6 +29,16 @@ struct sh1107_state {
         // driver-level preference, not chip state -- set once via
         // light_display_sh1107_set_sweep_direction(), survives resets
         uint8_t sweep_direction;
+        // async update state -- see _sh1107_update_async_start()/_poll() below. sequenced
+        // by column (not page), since SH1107's vertical addressing mode auto-increments the
+        // page address within a column, making column the natural per-burst unit
+        bool update_in_progress;
+        uint16_t update_column_index;
+        uint32_t update_start_time_ms;
+        // moved off the stack from what used to be update_screen()'s local page_buf: an
+        // async burst is read by DMA after the function that filled it returns, so it can't
+        // be stack memory -- it has to survive at least until burst_is_complete()
+        uint8_t update_page_buf[SH1107_MAX_PAGES];
 };
 
 static struct display_driver_context *_sh1107_spawn_context();
@@ -23,6 +46,9 @@ static void _sh1107_init(struct display_device *dev);
 static void _sh1107_reset(struct display_device *dev);
 static void _sh1107_clear(struct display_device *dev, uint8_t value);
 static void _sh1107_update(struct display_device *dev);
+static void _sh1107_update_async_start(struct display_device *dev);
+static bool _sh1107_update_async_poll(struct display_device *dev);
+static bool _sh1107_update_async_is_active(struct display_device *dev);
 
 static struct display_driver _driver_sh1107 = {
         .name = "display.driver:sh1107",
@@ -30,7 +56,10 @@ static struct display_driver _driver_sh1107 = {
         .init_device = _sh1107_init,
         .reset = _sh1107_reset,
         .clear = _sh1107_clear,
-        .update = _sh1107_update
+        .update = _sh1107_update,
+        .update_async_start = _sh1107_update_async_start,
+        .update_async_poll = _sh1107_update_async_poll,
+        .update_async_is_active = _sh1107_update_async_is_active
 };
 
 struct display_driver *light_display_driver_sh1107()
@@ -43,10 +72,12 @@ static struct display_driver_context *_sh1107_spawn_context()
         struct display_driver_context *ctx = light_alloc(sizeof(struct display_driver_context));
         ctx->driver = light_display_driver_sh1107();
         ctx->state = light_alloc(sizeof(struct sh1107_state));
-        // light_alloc() is a plain malloc(), not zeroed -- sweep_direction must be set
-        // explicitly rather than relying on it happening to start at
-        // SH1107_SWEEP_FORWARD (0)
-        ((struct sh1107_state *) ctx->state)->sweep_direction = SH1107_SWEEP_FORWARD;
+        // light_alloc() is a plain malloc(), not zeroed -- sweep_direction and
+        // update_in_progress must be set explicitly rather than relying on them happening
+        // to start at SH1107_SWEEP_FORWARD (0) / false
+        struct sh1107_state *state = (struct sh1107_state *) ctx->state;
+        state->sweep_direction = SH1107_SWEEP_FORWARD;
+        state->update_in_progress = false;
         return ctx;
 }
 
@@ -123,7 +154,7 @@ void light_display_sh1107_chip_setup(struct display_device *dev)
         light_display_sh1107_command_set_scan_dir(dev, SH1107_SCAN_DIR_DOWN);   // set common scan direction (down)
         light_display_sh1107_command_set_force_on(dev, false);          // set force all pixels (disable)
         light_display_sh1107_command_set_reverse_display(dev, false);   // set reverse mode OFF
-        light_display_sh1107_command_set_multiplex_ratio(dev, 63);     // set multiplex ratio (1:64)
+        light_display_sh1107_command_set_multiplex_ratio(dev, 63);     // set multiplex ratio (1:64) -- fixed, this panel only has 64 COM lines
         light_display_sh1107_command_set_display_offset(dev, 96);       // set display offset (48)
         light_display_sh1107_command_set_display_clock(dev, 4, 1);      // set oscillator freq ([f-5%]/2)
         light_display_sh1107_command_set_charge_periods(dev, 2, 2);     // set pre-charge (2), dis-charge (2)
@@ -197,6 +228,84 @@ void light_display_sh1107_update_screen(struct display_device *dev)
                 light_display_sh1107_command_set_page_addr(dev, 0);
                 light_display_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
         }
+}
+// assembles one column's worth of page bytes from the render buffer (same bit-transpose as
+// light_display_sh1107_update_screen()'s loop body, just for a single column) into
+// state->update_page_buf, then kicks off a non-blocking burst send for it. shared by
+// _sh1107_update_async_start() (first column) and _sh1107_update_async_poll() (every column
+// after)
+static void _sh1107_update_kick_column(struct display_device *dev, uint16_t sweep_index)
+{
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
+        uint16_t width_bytes = (dev->width + 7) / 8;
+        const uint8_t *src = dev->render_ctx->buffer;
+        uint16_t column = _sweep_column(state, sweep_index);
+
+        _send_column_addr_unconditional(dev, column);
+
+        for(uint16_t page = 0; page < state->n_pages && page < SH1107_MAX_PAGES; page++) {
+                uint8_t out = 0;
+                for(uint8_t bit = 0; bit < 8; bit++) {
+                        uint16_t y = page * 8 + bit;
+                        if(y >= dev->height)
+                                break;
+                        uint8_t src_byte = src[y * width_bytes + column / 8];
+                        if(src_byte & (1 << (column % 8)))
+                                out |= (1 << bit);
+                }
+                state->update_page_buf[page] = out;
+        }
+        state->page_address = 0xFF;
+        light_display_sh1107_command_set_page_addr(dev, 0);
+        light_display_ioport_send_data_burst_async(state->io_ctx, state->update_page_buf, state->n_pages);
+}
+static void _sh1107_update_async_start(struct display_device *dev)
+{
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
+        if(state->update_in_progress) {
+                light_warn("update already in progress for device '%s', ignoring", dev->header.id);
+                return;
+        }
+        state->update_in_progress = true;
+        state->update_column_index = 0;
+        state->update_start_time_ms = light_platform_get_time_since_init();
+        _sh1107_update_kick_column(dev, 0);
+}
+// intended to drain as many already-completed columns as possible in one call, so a fast
+// bus wouldn't be artificially capped at one column per scheduler tick. in practice a single
+// column's burst (tens to low hundreds of microseconds) almost always finishes well within
+// one tick, so kicking off column N+1 and immediately re-checking burst_is_complete() in the
+// same iteration nearly always sees "still busy" and exits the loop -- so this ends up
+// pacing at roughly one column per tick regardless of bus speed. that's fine: the actual
+// goal was freeing the CPU between transfers (which this does -- see SH1107_ASYNC_TIMEOUT_MS
+// for why the timeout has to account for this pacing), not minimizing wall-clock time to
+// finish a whole-screen update
+static bool _sh1107_update_async_poll(struct display_device *dev)
+{
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
+        if(!state->update_in_progress)
+                return true;
+
+        if(light_platform_get_time_since_init() - state->update_start_time_ms > SH1107_ASYNC_TIMEOUT_MS) {
+                light_error("async update timed out for device '%s', aborting", dev->header.id);
+                state->update_in_progress = false;
+                return true;
+        }
+
+        while(light_display_ioport_burst_is_complete(state->io_ctx)) {
+                state->update_column_index++;
+                if(state->update_column_index >= state->n_columns) {
+                        state->update_in_progress = false;
+                        return true;
+                }
+                _sh1107_update_kick_column(dev, state->update_column_index);
+        }
+        return false;
+}
+static bool _sh1107_update_async_is_active(struct display_device *dev)
+{
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
+        return state->update_in_progress;
 }
 struct display_device *light_display_sh1107_create_device(uint8_t *name, uint16_t width, uint16_t height, uint8_t bpp, struct io_context *io)
 {
