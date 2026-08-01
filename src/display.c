@@ -142,6 +142,17 @@ bool light_display_update_in_progress(struct display_device *dev)
                 return false;
         return drv->update_async_is_active(dev);
 }
+bool light_display_render_context_busy(struct rend_context *ctx)
+{
+        for(uint16_t i = 0; i < next_device_id; i++) {
+                struct display_device *dev = device_root.device[i];
+                if(!dev || dev->render_ctx != ctx)
+                        continue;
+                if(light_display_update_in_progress(dev))
+                        return true;
+        }
+        return false;
+}
 void light_display_poll_async_updates(void)
 {
         for(uint16_t i = 0; i < next_device_id; i++) {

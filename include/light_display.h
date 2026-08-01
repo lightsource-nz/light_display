@@ -87,5 +87,9 @@ extern void light_display_command_clear(struct display_device *dev, uint16_t val
 // double-buffering) -- check light_display_update_in_progress() first if unsure
 extern void light_display_command_update_async(struct display_device *dev);
 extern bool light_display_update_in_progress(struct display_device *dev);
+// true if any registered display device currently rendering through ctx has an async
+// update in flight. callers should check this before rend_context_swap_buffers(ctx) --
+// swapping into a buffer a driver is still reading from would tear the in-flight frame
+extern bool light_display_render_context_busy(struct rend_context *ctx);
 
 #endif
