@@ -8,16 +8,11 @@
 // upper bound on how long one FULL async update (all columns) should ever take -- if it
 // hasn't completed within this window, something is genuinely stuck (miswired DMA channel,
 // hardware fault) and the scheduler must not be allowed to wait on it forever.
-// NOT just "one column's burst time": update_async_poll()'s drain loop only advances past a
-// column once burst_is_complete() sees it finished, and it checks that once per scheduler
-// tick (LIGHT_TASK_POLL_INTERVAL_MS, 1ms) -- a column's burst (tens to low hundreds of
-// microseconds) almost always finishes well within that tick, so in practice this ends up
-// pacing at roughly one column per tick regardless of actual bus speed, not one burst's
-// worth of time for the whole sweep. worst case is therefore closer to
-// (n_columns * tick interval) than to a single burst's duration -- for a 128-column-wide
-// panel (SH1107's max) that's ~128ms, so this needs real headroom above that, not a value
-// sized for one burst
-#define SH1107_ASYNC_TIMEOUT_MS 500
+// update_async_poll() busy-drains the whole remaining sweep in one call (see there), so
+// this is bus-bound, not tick-bound: a 128-column-wide panel (SH1107's max) is a little
+// over 1200 bytes including command overhead, well under 20ms even at a conservatively
+// slow SPI clock -- 50ms leaves ample headroom above that worst case
+#define SH1107_ASYNC_TIMEOUT_MS 50
 
 struct sh1107_state {
         struct io_context *io_ctx;
@@ -278,28 +273,29 @@ static void _sh1107_update_async_start(struct display_device *dev)
         state->update_source_buffer = dev->render_ctx->buffer;
         _sh1107_update_kick_column(dev, 0);
 }
-// intended to drain as many already-completed columns as possible in one call, so a fast
-// bus wouldn't be artificially capped at one column per scheduler tick. in practice a single
-// column's burst (tens to low hundreds of microseconds) almost always finishes well within
-// one tick, so kicking off column N+1 and immediately re-checking burst_is_complete() in the
-// same iteration nearly always sees "still busy" and exits the loop -- so this ends up
-// pacing at roughly one column per tick regardless of bus speed. that's fine: the actual
-// goal was freeing the CPU between transfers (which this does -- see SH1107_ASYNC_TIMEOUT_MS
-// for why the timeout has to account for this pacing), not minimizing wall-clock time to
-// finish a whole-screen update
+// drains the ENTIRE remaining sweep in one call: waits for each column's burst to actually
+// finish (tens of microseconds of real bus time) before kicking the next, rather than
+// checking once and returning on "still busy" -- the latter only ever advanced ~1 column
+// per scheduler tick (~1ms) regardless of bus speed, since a freshly-kicked burst is
+// essentially never complete by the time the very next check runs. total time for this
+// loop is bounded by real bus time for the whole remaining sweep (roughly 1-2ms for a
+// 64-column panel at 10MHz), not by tick count -- see SH1107_ASYNC_TIMEOUT_MS. the deadline
+// check runs every iteration (not just once at entry) so a genuinely stuck transfer still
+// aborts within that window instead of spinning forever inside this one call
 static bool _sh1107_update_async_poll(struct display_device *dev)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
         if(!state->update_in_progress)
                 return true;
 
-        if(light_platform_get_time_since_init() - state->update_start_time_ms > SH1107_ASYNC_TIMEOUT_MS) {
-                light_error("async update timed out for device '%s', aborting", dev->header.id);
-                state->update_in_progress = false;
-                return true;
-        }
-
-        while(light_display_ioport_burst_is_complete(state->io_ctx)) {
+        while(1) {
+                if(light_platform_get_time_since_init() - state->update_start_time_ms > SH1107_ASYNC_TIMEOUT_MS) {
+                        light_error("async update timed out for device '%s', aborting", dev->header.id);
+                        state->update_in_progress = false;
+                        return true;
+                }
+                if(!light_display_ioport_burst_is_complete(state->io_ctx))
+                        continue;
                 state->update_column_index++;
                 if(state->update_column_index >= state->n_columns) {
                         state->update_in_progress = false;
@@ -307,7 +303,6 @@ static bool _sh1107_update_async_poll(struct display_device *dev)
                 }
                 _sh1107_update_kick_column(dev, state->update_column_index);
         }
-        return false;
 }
 static bool _sh1107_update_async_is_active(struct display_device *dev)
 {
