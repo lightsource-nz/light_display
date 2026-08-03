@@ -23,7 +23,5 @@ static void _module_event(const struct light_module *module, uint8_t event, void
 static uint8_t _module_task(struct light_application *app)
 {
         // TODO add tick counter and cycle timer, etc
-        light_info("enter light-display module task, time=%dms, time since last run=%dms", 0, 0);
-        
         return LF_STATUS_RUN;
 }
