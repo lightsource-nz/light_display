@@ -65,9 +65,9 @@ extern void light_display_st7789_command_set_display_on(struct display_device *d
 // fill -- x0/x1 and y0/y1 are already offset-adjusted (see light_display_st7789_set_offset())
 extern void light_display_st7789_command_set_window(struct display_device *dev,
         uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
-// sends the RAMWR command byte -- caller follows with light_display_ioport_send_data_burst()
+// sends the RAMWR command byte -- caller follows with light_ioport_send_data_burst()
 // of the actual pixel data as a separate call. CS toggles independently per
-// light_display_ioport call (same as every other command+data sequence in this codebase,
+// light_ioport call (same as every other command+data sequence in this codebase,
 // e.g. SH1106/SH1107's column-address-then-burst pattern) -- ST7789 only needs DC to
 // correctly distinguish command vs. data bytes, not a continuously-held CS across both
 extern void light_display_st7789_command_ram_write(struct display_device *dev);

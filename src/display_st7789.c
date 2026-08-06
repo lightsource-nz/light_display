@@ -93,7 +93,7 @@ void light_display_st7789_set_offset(struct display_device *dev, uint16_t col_of
 void light_display_st7789_reset_device(struct display_device *dev)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_signal_reset(state->io_ctx);
+        light_ioport_signal_reset(state->io_ctx);
 }
 
 void light_display_st7789_chip_setup(struct display_device *dev)
@@ -133,7 +133,7 @@ void light_display_st7789_clear_screen(struct display_device *dev, uint16_t colo
         // per-byte bit-transpose needed here, this is purely a "how big a single stack
         // buffer is reasonable" chunking choice
         for(uint16_t y = 0; y < dev->height; y++) {
-                light_display_ioport_send_data_burst(state->io_ctx, row_buf, n * 2);
+                light_ioport_send_data_burst(state->io_ctx, row_buf, n * 2);
         }
 }
 
@@ -147,13 +147,13 @@ void light_display_st7789_update_screen(struct display_device *dev)
         // straight from the render context's own buffer
         light_display_st7789_command_set_window(dev, 0, 0, dev->width - 1, dev->height - 1);
         light_display_st7789_command_ram_write(dev);
-        light_display_ioport_send_data_burst(state->io_ctx, dev->render_ctx->buffer, dev->render_ctx->buffer_length);
+        light_ioport_send_data_burst(state->io_ctx, dev->render_ctx->buffer, dev->render_ctx->buffer_length);
 }
 
 // kicks off the whole frame as a single non-blocking DMA burst and returns immediately --
 // unlike the OLED drivers, there's nothing to chunk: CASET/RASET/RAMWR are sent
 // (blocking, but each is only a handful of bytes) to set up the write window, then the
-// entire render buffer goes out as one light_display_ioport_send_data_burst_async() call.
+// entire render buffer goes out as one light_ioport_send_data_burst_async() call.
 // dev->render_ctx->buffer is read by DMA asynchronously after this returns -- safe because
 // the generic light_display layer (_light_display_drain_async() in display.c) blocks any
 // sync reset/clear/update on this device until update_async_is_active() reports false, and
@@ -172,7 +172,7 @@ static void _st7789_update_async_start(struct display_device *dev)
 
         light_display_st7789_command_set_window(dev, 0, 0, dev->width - 1, dev->height - 1);
         light_display_st7789_command_ram_write(dev);
-        light_display_ioport_send_data_burst_async(state->io_ctx, dev->render_ctx->buffer, dev->render_ctx->buffer_length);
+        light_ioport_send_data_burst_async(state->io_ctx, dev->render_ctx->buffer, dev->render_ctx->buffer_length);
 }
 // single non-blocking check, unlike SH1107's busy-drain-the-whole-sweep loop -- there's
 // only one burst total here, not dozens of small per-column ones, so there's nothing to
@@ -188,7 +188,7 @@ static bool _st7789_update_async_poll(struct display_device *dev)
                 state->update_in_progress = false;
                 return true;
         }
-        if(!light_display_ioport_burst_is_complete(state->io_ctx))
+        if(!light_ioport_burst_is_complete(state->io_ctx))
                 return false;
         state->update_in_progress = false;
         return true;
@@ -216,34 +216,34 @@ struct display_device *light_display_st7789_create_device(uint8_t *name, uint16_
 void light_display_st7789_command_sw_reset(struct display_device *dev)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, ST7789_CMD_SWRESET);
+        light_ioport_send_command_byte(state->io_ctx, ST7789_CMD_SWRESET);
 }
 void light_display_st7789_command_sleep_out(struct display_device *dev)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, ST7789_CMD_SLPOUT);
+        light_ioport_send_command_byte(state->io_ctx, ST7789_CMD_SLPOUT);
 }
 void light_display_st7789_command_set_colmod(struct display_device *dev, uint8_t format)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, ST7789_CMD_COLMOD);
-        light_display_ioport_send_data_byte(state->io_ctx, format);
+        light_ioport_send_command_byte(state->io_ctx, ST7789_CMD_COLMOD);
+        light_ioport_send_data_byte(state->io_ctx, format);
 }
 void light_display_st7789_command_set_madctl(struct display_device *dev, uint8_t bits)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, ST7789_CMD_MADCTL);
-        light_display_ioport_send_data_byte(state->io_ctx, bits);
+        light_ioport_send_command_byte(state->io_ctx, ST7789_CMD_MADCTL);
+        light_ioport_send_data_byte(state->io_ctx, bits);
 }
 void light_display_st7789_command_set_inversion(struct display_device *dev, bool enable)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, enable ? ST7789_CMD_INVON : ST7789_CMD_INVOFF);
+        light_ioport_send_command_byte(state->io_ctx, enable ? ST7789_CMD_INVON : ST7789_CMD_INVOFF);
 }
 void light_display_st7789_command_set_display_on(struct display_device *dev, bool enable)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, enable ? ST7789_CMD_DISPON : ST7789_CMD_DISPOFF);
+        light_ioport_send_command_byte(state->io_ctx, enable ? ST7789_CMD_DISPON : ST7789_CMD_DISPOFF);
 }
 void light_display_st7789_command_set_window(struct display_device *dev,
         uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
@@ -254,16 +254,16 @@ void light_display_st7789_command_set_window(struct display_device *dev,
         uint16_t cy0 = y0 + state->row_offset;
         uint16_t cy1 = y1 + state->row_offset;
 
-        light_display_ioport_send_command_byte(state->io_ctx, ST7789_CMD_CASET);
+        light_ioport_send_command_byte(state->io_ctx, ST7789_CMD_CASET);
         uint8_t caset[4] = { (uint8_t)(cx0 >> 8), (uint8_t)(cx0 & 0xFF), (uint8_t)(cx1 >> 8), (uint8_t)(cx1 & 0xFF) };
-        light_display_ioport_send_data_burst(state->io_ctx, caset, 4);
+        light_ioport_send_data_burst(state->io_ctx, caset, 4);
 
-        light_display_ioport_send_command_byte(state->io_ctx, ST7789_CMD_RASET);
+        light_ioport_send_command_byte(state->io_ctx, ST7789_CMD_RASET);
         uint8_t raset[4] = { (uint8_t)(cy0 >> 8), (uint8_t)(cy0 & 0xFF), (uint8_t)(cy1 >> 8), (uint8_t)(cy1 & 0xFF) };
-        light_display_ioport_send_data_burst(state->io_ctx, raset, 4);
+        light_ioport_send_data_burst(state->io_ctx, raset, 4);
 }
 void light_display_st7789_command_ram_write(struct display_device *dev)
 {
         struct st7789_state *state = (struct st7789_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, ST7789_CMD_RAMWR);
+        light_ioport_send_command_byte(state->io_ctx, ST7789_CMD_RAMWR);
 }
