@@ -23,7 +23,7 @@ struct sh1106_state {
 static struct display_driver_context *_sh1106_spawn_context();
 static void _sh1106_init(struct display_device *dev);
 static void _sh1106_reset(struct display_device *dev);
-static void _sh1106_clear(struct display_device *dev, uint8_t value);
+static void _sh1106_clear(struct display_device *dev, uint16_t value);
 static void _sh1106_update(struct display_device *dev);
 
 static struct display_driver _driver_sh1106 = {
@@ -61,9 +61,12 @@ static void _sh1106_reset(struct display_device *dev)
 {
         light_display_sh1106_reset_device(dev);
 }
-static void _sh1106_clear(struct display_device *dev, uint8_t value)
+static void _sh1106_clear(struct display_device *dev, uint16_t value)
 {
-        light_display_sh1106_clear_screen(dev, value);
+        // 1bpp: only the low byte is meaningful (0/1-per-bit paradigm), matching this
+        // driver's pre-existing behavior -- the vtable's clear slot itself was widened for
+        // 16bpp color drivers, this one just doesn't need the extra range
+        light_display_sh1106_clear_screen(dev, (uint8_t)value);
 }
 static void _sh1106_update(struct display_device *dev)
 {
