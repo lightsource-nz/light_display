@@ -25,6 +25,7 @@
 
 extern struct io_context *light_display_po13_setup_io_i2c(uint8_t port_id);
 extern struct io_context *light_display_po13_setup_io_spi_4p(uint8_t port_id);
+extern struct io_context *light_display_po13_setup_io_pio_spi_4p(uint8_t port_id);
 extern struct io_context *light_display_po13_setup_io_spi_3p(uint8_t port_id);
 
 extern struct display_device *light_display_po13_create_device(uint8_t *name, struct io_context *io);
