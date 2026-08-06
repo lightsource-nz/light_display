@@ -17,7 +17,7 @@ struct io_context *light_display_po13_setup_io_spi_4p(uint8_t port_id)
 }
 struct io_context *light_display_po13_setup_io_pio_spi_4p(uint8_t port_id)
 {
-        return light_display_ioport_setup_io_pio_spi_4p(
+        return light_ioport_setup_io_pio_spi_4p(
                 port_id, PO13_PIN_RESET, PO13_PIN_CS, PO13_PIN_DC,
                                 PO13_PIN_SPI_SCK, PO13_PIN_SPI_MOSI);
 }
