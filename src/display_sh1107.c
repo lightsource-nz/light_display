@@ -45,7 +45,7 @@ struct sh1107_state {
 static struct display_driver_context *_sh1107_spawn_context();
 static void _sh1107_init(struct display_device *dev);
 static void _sh1107_reset(struct display_device *dev);
-static void _sh1107_clear(struct display_device *dev, uint8_t value);
+static void _sh1107_clear(struct display_device *dev, uint16_t value);
 static void _sh1107_update(struct display_device *dev);
 static void _sh1107_update_async_start(struct display_device *dev);
 static bool _sh1107_update_async_poll(struct display_device *dev);
@@ -92,9 +92,11 @@ static void _sh1107_reset(struct display_device *dev)
         // ASSERT dev->driver_ctx->driver == light_display_driver_sh1007()
         light_display_sh1107_reset_device(dev);
 }
-static void _sh1107_clear(struct display_device *dev, uint8_t value)
+static void _sh1107_clear(struct display_device *dev, uint16_t value)
 {
-        light_display_sh1107_clear_screen(dev, value);
+        // 1bpp: only the low byte is meaningful, matching this driver's pre-existing
+        // behavior -- the vtable's clear slot itself was widened for 16bpp color drivers
+        light_display_sh1107_clear_screen(dev, (uint8_t)value);
 }
 static void _sh1107_update(struct display_device *dev)
 {
