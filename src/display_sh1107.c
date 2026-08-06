@@ -121,15 +121,15 @@ void light_display_sh1107_set_sweep_direction(struct display_device *dev, uint8_
 static void _send_column_addr_unconditional(struct display_device *dev, uint8_t column)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_LOW + (column & 0x0F));
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_HIGH + (column >> 4));
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_LOW + (column & 0x0F));
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_HIGH + (column >> 4));
         state->column_address = column;
 }
 
 void light_display_sh1107_reset_device(struct display_device *dev)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_signal_reset(state->io_ctx);
+        light_ioport_signal_reset(state->io_ctx);
         // straightforward, non-rotated mapping: physical column = canvas x directly,
         // physical page = group of 8 canvas y rows. dev->width/height are expected to
         // already describe the panel's real physical orientation (PO13 is 64x128
@@ -186,7 +186,7 @@ void light_display_sh1107_clear_screen(struct display_device *dev, uint8_t value
                 // 0) would otherwise see "already at 0" and skip sending the command
                 state->page_address = 0xFF;
                 light_display_sh1107_command_set_page_addr(dev, 0);
-                light_display_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
+                light_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
         }
 }
 void light_display_sh1107_update_screen(struct display_device *dev)
@@ -229,7 +229,7 @@ void light_display_sh1107_update_screen(struct display_device *dev)
                 // place, and why it's safe to drop for a burst
                 state->page_address = 0xFF;
                 light_display_sh1107_command_set_page_addr(dev, 0);
-                light_display_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
+                light_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
         }
 }
 // assembles one column's worth of page bytes from the render buffer (same bit-transpose as
@@ -260,7 +260,7 @@ static void _sh1107_update_kick_column(struct display_device *dev, uint16_t swee
         }
         state->page_address = 0xFF;
         light_display_sh1107_command_set_page_addr(dev, 0);
-        light_display_ioport_send_data_burst_async(state->io_ctx, state->update_page_buf, state->n_pages);
+        light_ioport_send_data_burst_async(state->io_ctx, state->update_page_buf, state->n_pages);
 }
 static void _sh1107_update_async_start(struct display_device *dev)
 {
@@ -296,7 +296,7 @@ static bool _sh1107_update_async_poll(struct display_device *dev)
                         state->update_in_progress = false;
                         return true;
                 }
-                if(!light_display_ioport_burst_is_complete(state->io_ctx))
+                if(!light_ioport_burst_is_complete(state->io_ctx))
                         continue;
                 state->update_column_index++;
                 if(state->update_column_index >= state->n_columns) {
@@ -334,115 +334,115 @@ void light_display_sh1107_command_set_column_addr(struct display_device *dev, ui
         // for this panel -- every other command byte/order in this file was verified
         // against that reference and matched exactly except this one
         if((state->column_address & 0x0F) != (column & 0x0F))
-                light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_LOW + (column & 0x0F));
+                light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_LOW + (column & 0x0F));
         if((state->column_address & 0xF0) != (column & 0xF0))
-                light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_HIGH + (column >> 4));
+                light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_COL_ADDR_HIGH + (column >> 4));
         state->column_address = column;
 }
 void light_display_sh1107_command_set_addrmode(struct display_device *dev, uint8_t mode)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_ADDRMODE + mode);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_ADDRMODE + mode);
 }
 void light_display_sh1107_command_set_contrast(struct display_device *dev, uint8_t level)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_CONTRAST);
-        light_display_ioport_send_command_byte(state->io_ctx, level);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_CONTRAST);
+        light_ioport_send_command_byte(state->io_ctx, level);
 }
 void light_display_sh1107_command_set_segment_remap(struct display_device *dev, bool enable)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_SEG_REMAP + enable);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_SEG_REMAP + enable);
 }
 extern void light_display_sh1107_command_set_multiplex_ratio(struct display_device *dev, uint8_t ratio)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_MUX_RATIO);
-        light_display_ioport_send_command_byte(state->io_ctx, ratio);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_MUX_RATIO);
+        light_ioport_send_command_byte(state->io_ctx, ratio);
 }
 void light_display_sh1107_command_set_force_on(struct display_device *dev, bool enable)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_FORCE_ON + enable);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_FORCE_ON + enable);
 }
 void light_display_sh1107_command_set_reverse_display(struct display_device *dev, bool enable)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_REVERSE + enable);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_REVERSE + enable);
 }
 void light_display_sh1107_command_set_display_offset(struct display_device *dev, uint8_t data)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_OFFSET);
-        light_display_ioport_send_command_byte(state->io_ctx, data);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_OFFSET);
+        light_ioport_send_command_byte(state->io_ctx, data);
 }
 void light_display_sh1107_command_set_power_mode(struct display_device *dev, bool enable, uint8_t mode)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_POWER_MODE);
-        light_display_ioport_send_command_byte(state->io_ctx, 0x80 + enable + (mode << 1));
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_POWER_MODE);
+        light_ioport_send_command_byte(state->io_ctx, 0x80 + enable + (mode << 1));
 }
 void light_display_sh1107_command_set_display_on(struct display_device *dev, bool enable)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_ON + enable);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_ON + enable);
 }
 void light_display_sh1107_command_set_page_addr(struct display_device *dev, uint8_t page)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
         if(state->page_address != page)
-                light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_PAGE_ADDR + page);
+                light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_PAGE_ADDR + page);
         state->page_address = page;
 }
 void light_display_sh1107_command_set_scan_dir(struct display_device *dev, uint8_t data)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_SCAN_DIR + data);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_SCAN_DIR + data);
 }
 void light_display_sh1107_command_set_display_clock(struct display_device *dev, uint8_t freq, uint8_t div)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_CLK);
-        light_display_ioport_send_command_byte(state->io_ctx, ((freq & 0x0F) << 4) + (div & 0x0F));
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_CLK);
+        light_ioport_send_command_byte(state->io_ctx, ((freq & 0x0F) << 4) + (div & 0x0F));
 }
 void light_display_sh1107_command_set_charge_periods(struct display_device *dev, uint8_t pre, uint8_t dis)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_CHARGE_PERIODS);
-        light_display_ioport_send_command_byte(state->io_ctx, (pre & 0x0F) + ((dis & 0x0F) << 4));
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_CHARGE_PERIODS);
+        light_ioport_send_command_byte(state->io_ctx, (pre & 0x0F) + ((dis & 0x0F) << 4));
 }
 void light_display_sh1107_command_set_vcom_deselect(struct display_device *dev, uint8_t data)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_VCOMH);
-        light_display_ioport_send_command_byte(state->io_ctx, data);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_VCOMH);
+        light_ioport_send_command_byte(state->io_ctx, data);
 }
 void light_display_sh1107_command_set_start_line(struct display_device *dev, uint8_t addr)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_START);
-        light_display_ioport_send_command_byte(state->io_ctx, addr);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_SET_DISPLAY_START);
+        light_ioport_send_command_byte(state->io_ctx, addr);
 }
 void light_display_sh1107_command_rmw_begin(struct display_device *dev)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_RMW_BEGIN);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_RMW_BEGIN);
 }
 void light_display_sh1107_command_rmw_end(struct display_device *dev)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_RMW_END);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_RMW_END);
 }
 void light_display_sh1107_command_no_op(struct display_device *dev)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_command_byte(state->io_ctx, SH1107_CMD_NOP);
+        light_ioport_send_command_byte(state->io_ctx, SH1107_CMD_NOP);
 }
 void light_display_sh1107_write_data(struct display_device *dev, uint8_t data)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        light_display_ioport_send_data_byte(state->io_ctx, data);
+        light_ioport_send_data_byte(state->io_ctx, data);
 
         // increment address counter, to track state of driver's internal counter
         switch (state->addrmode)
