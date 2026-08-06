@@ -21,7 +21,11 @@ struct display_driver
         void (*init_device)(struct display_device *);
         void (*reset)(struct display_device *);
         void (*update)(struct display_device *);
-        void (*clear)(struct display_device *, uint8_t value);
+        // matches light_display_command_clear()'s own uint16_t -- previously uint8_t here,
+        // which silently truncated every call through the mismatched function-pointer type
+        // (harmless for 1bpp OLED drivers, which only ever used the low byte anyway, but
+        // wrong for any 16bpp RGB565 driver that needs a real color, not just 0/1)
+        void (*clear)(struct display_device *, uint16_t value);
         // all three optional -- NULL means the driver hasn't implemented async updates yet,
         // in which case light_display_command_update_async() falls back to the blocking
         // update() above

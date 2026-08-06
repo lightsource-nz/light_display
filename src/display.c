@@ -119,13 +119,15 @@ static void _light_display_drain_async(struct display_device *dev)
 }
 void light_display_command_update(struct display_device *dev)
 {
-        light_debug("device: %s", dev->header.id);
+        // trace, not debug -- fires every frame on any continuously-redrawing display,
+        // flooding the console at DEBUG level otherwise
+        light_trace("device: %s", dev->header.id);
         _light_display_drain_async(dev);
         dev->driver_ctx->driver->update(dev);
 }
 void light_display_command_update_async(struct display_device *dev)
 {
-        light_debug("device: %s", dev->header.id);
+        light_trace("device: %s", dev->header.id);
         const struct display_driver *drv = dev->driver_ctx->driver;
         if(!drv->update_async_start) {
                 // driver hasn't implemented async yet -- fall back to a normal blocking
