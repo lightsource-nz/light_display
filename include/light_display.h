@@ -2,7 +2,7 @@
 #define _LIGHT_DISPLAY_H
 
 #include <light.h>
-#include <light_display_ioport.h>
+#include <light_ioport.h>
 #include <rend.h>
 
 #include <stdint.h>
