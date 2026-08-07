@@ -13,12 +13,11 @@
 // platform's ioport uses (10MHz) is ~108ms; 500ms leaves ample headroom above that for a
 // slower clock divisor or bus contention
 #define ST7789_ASYNC_TIMEOUT_MS         500
-// never spin-wait: this driver's chunks are large transfers (a full-width update is the
-// entire region in one burst -- up to 134400 bytes, ~108ms of bus time), which is exactly
-// the case worth overlapping with real work rather than blocking a scheduler tick on.
-// the cost is that a narrow region, which is chunked one row per burst, advances a row
-// per poll -- acceptable, since those rows are only sent when a small area changed
-#define ST7789_CHUNKS_PER_POLL          0
+// how many row-chunks to spin through per poll when a region IS chunked by row. each is a
+// short burst -- a 33px-wide row of a small moving sprite is only ~66 bytes -- so yielding
+// after every one costs a whole scheduler tick to move almost nothing, and a region tall
+// enough to matter would take as many ticks as it has rows
+#define ST7789_ROW_CHUNKS_PER_POLL      8
 
 struct st7789_state {
         struct io_context *io_ctx;
@@ -32,6 +31,7 @@ static void _st7789_init(struct display_device *dev);
 static void _st7789_reset(struct display_device *dev);
 static void _st7789_clear(struct display_device *dev, uint16_t value);
 static uint16_t _st7789_async_chunk_count(struct display_device *dev);
+static uint16_t _st7789_async_chunks_per_poll(struct display_device *dev);
 static void _st7789_async_kick(struct display_device *dev, uint16_t chunk_index);
 static bool _st7789_async_chunk_complete(struct display_device *dev);
 
@@ -48,7 +48,7 @@ static struct display_driver _driver_st7789 = {
         .async_kick = _st7789_async_kick,
         .async_chunk_complete = _st7789_async_chunk_complete,
         .async_timeout_ms = ST7789_ASYNC_TIMEOUT_MS,
-        .async_chunks_per_poll = ST7789_CHUNKS_PER_POLL
+        .async_chunks_per_poll = _st7789_async_chunks_per_poll
 };
 
 struct display_driver *light_display_driver_st7789()
@@ -155,6 +155,15 @@ static uint16_t _px_bytes(struct display_device *dev)
 static uint16_t _st7789_async_chunk_count(struct display_device *dev)
 {
         return _region_is_full_width(dev) ? 1 : _region_rows(dev);
+}
+// the two chunkings this driver produces want opposite waits, which is why the budget is
+// asked per update rather than fixed. a full-width region is ONE large transfer -- up to
+// 134400 bytes, ~108ms of bus time -- and spinning on that would block a scheduler tick
+// for the whole thing, so it yields instead and overlaps with real work. a narrower region
+// is many short row bursts, where yielding per row is the expensive choice
+static uint16_t _st7789_async_chunks_per_poll(struct display_device *dev)
+{
+        return _region_is_full_width(dev) ? 0 : ST7789_ROW_CHUNKS_PER_POLL;
 }
 static void _st7789_async_kick(struct display_device *dev, uint16_t chunk_index)
 {
