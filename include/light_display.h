@@ -62,11 +62,17 @@ struct display_driver
         // data rather than a function because the logic around it was identical in every
         // driver and only the constant ever differed
         uint32_t async_timeout_ms;
-        // how many chunks one poll may complete before yielding back to the scheduler.
-        // 0 means "no limit": drain the entire update in a single poll, which is what a
-        // driver wants when its chunks are only a few bytes each and yielding per chunk
-        // would spend a whole scheduler tick moving a handful of bytes. a nonzero budget
-        // keeps a long update from monopolising the tick
+        // how many chunks one poll may spin-wait for before handing the tick back.
+        //
+        // 0 means never spin: the poll yields as soon as the chunk in flight isn't done.
+        // that's what a driver wants when a chunk is a large transfer worth overlapping
+        // with real work.
+        //
+        // a nonzero budget means spin-wait for up to that many chunks per poll. that's
+        // what a driver wants when chunks are small and numerous -- a freshly kicked chunk
+        // is essentially never complete on the very next check, so yielding on that would
+        // advance only one chunk per scheduler tick and make a sweep take as many ticks as
+        // it has chunks. the budget bounds how long the spin can run
         uint16_t async_chunks_per_poll;
 };
 struct display_driver_context

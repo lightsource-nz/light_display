@@ -144,11 +144,16 @@ static bool _light_display_update_poll(struct display_device *dev)
                                 dev->update_in_progress = false;
                                 return true;
                         }
-                        // with a budget set, hand the rest of the tick back to the
-                        // scheduler; with no budget spin until it lands, which is what a
-                        // driver whose chunks are a few bytes each wants (one chunk per
-                        // tick would make a full sweep take as many ticks as it has columns)
-                        if(budget)
+                        // a chunk that was only just kicked is essentially never complete
+                        // yet, so whether to spin here or hand the tick back is the whole
+                        // difference between the two kinds of driver. spinning is right
+                        // when chunks are small and numerous (a column is tens of
+                        // microseconds of bus time, and yielding per chunk would make a
+                        // sweep take as many scheduler ticks as it has columns); yielding
+                        // is right when a chunk is a large transfer worth overlapping with
+                        // real work. the budget caps how long a spin can run before we
+                        // yield anyway, so no driver can monopolise the tick
+                        if(budget == 0 || completed >= budget)
                                 return false;
                         continue;
                 }
@@ -163,8 +168,6 @@ static bool _light_display_update_poll(struct display_device *dev)
                 // whole update -- the useful question is "has this transfer stalled", not
                 // "how long has this update been outstanding"
                 dev->update_chunk_time_ms = light_platform_get_time_since_init();
-                if(budget && completed >= budget)
-                        return false;
         }
 }
 // no entry point that touches the panel may run while an update is in flight -- a
