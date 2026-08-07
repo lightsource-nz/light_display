@@ -62,7 +62,10 @@ struct display_driver
         // data rather than a function because the logic around it was identical in every
         // driver and only the constant ever differed
         uint32_t async_timeout_ms;
-        // how many chunks one poll may spin-wait for before handing the tick back.
+        // how many chunks one poll may spin-wait for before handing the tick back. asked
+        // once per update, alongside async_chunk_count(), because the right answer depends
+        // on how THIS update ended up chunked -- a driver can produce one large chunk for
+        // one region and many small ones for another.
         //
         // 0 means never spin: the poll yields as soon as the chunk in flight isn't done.
         // that's what a driver wants when a chunk is a large transfer worth overlapping
@@ -71,9 +74,9 @@ struct display_driver
         // a nonzero budget means spin-wait for up to that many chunks per poll. that's
         // what a driver wants when chunks are small and numerous -- a freshly kicked chunk
         // is essentially never complete on the very next check, so yielding on that would
-        // advance only one chunk per scheduler tick and make a sweep take as many ticks as
-        // it has chunks. the budget bounds how long the spin can run
-        uint16_t async_chunks_per_poll;
+        // advance only one chunk per scheduler tick and make an update take as many ticks
+        // as it has chunks. the budget bounds how long the spin can run
+        uint16_t (*async_chunks_per_poll)(struct display_device *);
 };
 struct display_driver_context
 {
@@ -99,6 +102,9 @@ struct display_device {
         // an update can legitimately sit parked for a long time between polls, which says
         // nothing about whether the transport is stuck
         uint32_t update_chunk_time_ms;
+        // cached from the driver at update start, like update_chunk_count, so the poll
+        // doesn't re-ask on every iteration
+        uint16_t update_chunks_per_poll;
         uint16_t update_chunk_index;
         uint16_t update_chunk_count;
         bool update_in_progress;

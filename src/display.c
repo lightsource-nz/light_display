@@ -98,6 +98,7 @@ struct display_device *light_display_init_device_va(
         dev->update_source_buffer = NULL;
         dev->update_chunk_index = 0;
         dev->update_chunk_count = 0;
+        dev->update_chunks_per_poll = 0;
         _light_display_set_region_full(dev);
 
         light_object_add_va(&dev->header, &device_root.header, format, args);
@@ -123,7 +124,7 @@ static bool _light_display_update_poll(struct display_device *dev)
         if(!dev->update_in_progress)
                 return true;
 
-        const uint16_t budget = drv->async_chunks_per_poll;
+        const uint16_t budget = dev->update_chunks_per_poll;
         uint16_t completed = 0;
         while(1) {
                 if(!drv->async_chunk_complete(dev)) {
@@ -214,6 +215,9 @@ static void _light_display_update_start(struct display_device *dev)
         dev->update_source_buffer = dev->render_ctx->buffer;
         dev->update_chunk_index = 0;
         dev->update_chunk_count = drv->async_chunk_count(dev);
+        // asked per update, not per poll: how this region ended up chunked determines
+        // whether spinning or yielding is the right wait
+        dev->update_chunks_per_poll = drv->async_chunks_per_poll(dev);
 
         if(dev->update_chunk_count == 0) {
                 dev->update_in_progress = false;
