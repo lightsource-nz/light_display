@@ -13,10 +13,12 @@
 // platform's ioport uses (10MHz) is ~108ms; 500ms leaves ample headroom above that for a
 // slower clock divisor or bus contention
 #define ST7789_ASYNC_TIMEOUT_MS         500
-// only relevant for a region narrower than the panel, which is chunked one row per burst
-// (see _st7789_async_kick()) -- a full-width update is a single chunk regardless. rows are
-// small enough that yielding after each would waste a scheduler tick apiece
-#define ST7789_CHUNKS_PER_POLL          8
+// never spin-wait: this driver's chunks are large transfers (a full-width update is the
+// entire region in one burst -- up to 134400 bytes, ~108ms of bus time), which is exactly
+// the case worth overlapping with real work rather than blocking a scheduler tick on.
+// the cost is that a narrow region, which is chunked one row per burst, advances a row
+// per poll -- acceptable, since those rows are only sent when a small area changed
+#define ST7789_CHUNKS_PER_POLL          0
 
 struct st7789_state {
         struct io_context *io_ctx;
