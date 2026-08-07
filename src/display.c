@@ -126,21 +126,28 @@ static bool _light_display_update_poll(struct display_device *dev)
         const uint16_t budget = drv->async_chunks_per_poll;
         uint16_t completed = 0;
         while(1) {
-                if(light_platform_get_time_since_init() - dev->update_start_time_ms > drv->async_timeout_ms) {
-                        // note this abandons light_display's bookkeeping without cancelling
-                        // whatever the transport still has in flight -- there's no ioport
-                        // abort primitive to call, and in practice this only fires when the
-                        // bus is already wedged
-                        light_error("async update timed out for device '%s', aborting", dev->header.id);
-                        dev->update_in_progress = false;
-                        return true;
-                }
                 if(!drv->async_chunk_complete(dev)) {
-                        // still in flight. with a budget set, hand the rest of the tick
-                        // back to the scheduler; with no budget spin until it lands, which
-                        // is what a driver whose chunks are a few bytes each wants (one
-                        // chunk per tick would make a full sweep take as many ticks as it
-                        // has columns)
+                        // the deadline is deliberately only consulted HERE, on the path
+                        // where we are actually waiting on hardware. an update legitimately
+                        // sits parked between polls -- it may even be started before the
+                        // scheduler is running at all (crossfire kicks its first paint from
+                        // module load) -- so wall-clock elapsed since the update began says
+                        // nothing about whether the transport is stuck. checking it against
+                        // a completed chunk would abort a perfectly healthy update purely
+                        // because the caller took a while to come back and poll
+                        if(light_platform_get_time_since_init() - dev->update_chunk_time_ms > drv->async_timeout_ms) {
+                                // note this abandons light_display's bookkeeping without
+                                // cancelling whatever the transport still has in flight --
+                                // there's no ioport abort primitive to call, and in practice
+                                // this only fires when the bus is already wedged
+                                light_error("async update timed out for device '%s', aborting", dev->header.id);
+                                dev->update_in_progress = false;
+                                return true;
+                        }
+                        // with a budget set, hand the rest of the tick back to the
+                        // scheduler; with no budget spin until it lands, which is what a
+                        // driver whose chunks are a few bytes each wants (one chunk per
+                        // tick would make a full sweep take as many ticks as it has columns)
                         if(budget)
                                 return false;
                         continue;
@@ -152,6 +159,10 @@ static bool _light_display_update_poll(struct display_device *dev)
                         return true;
                 }
                 drv->async_kick(dev, dev->update_chunk_index);
+                // restamped per chunk, so async_timeout_ms bounds one chunk rather than a
+                // whole update -- the useful question is "has this transfer stalled", not
+                // "how long has this update been outstanding"
+                dev->update_chunk_time_ms = light_platform_get_time_since_init();
                 if(budget && completed >= budget)
                         return false;
         }
@@ -194,7 +205,7 @@ static void _light_display_update_start(struct display_device *dev)
         const struct display_driver *drv = dev->driver_ctx->driver;
 
         dev->update_in_progress = true;
-        dev->update_start_time_ms = light_platform_get_time_since_init();
+        dev->update_chunk_time_ms = light_platform_get_time_since_init();
         // captured once, so that a rend_context_swap_buffers() partway through can't leave
         // later chunks reading from a buffer the app has started redrawing
         dev->update_source_buffer = dev->render_ctx->buffer;

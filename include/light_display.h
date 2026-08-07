@@ -88,7 +88,11 @@ struct display_device {
         // display_driver above for why it lives here rather than in driver state
         struct display_region update_region;
         const uint8_t *update_source_buffer;
-        uint32_t update_start_time_ms;
+        // when the chunk currently in flight was kicked -- the async_timeout_ms deadline
+        // is measured from here, so it bounds a single chunk rather than a whole update.
+        // an update can legitimately sit parked for a long time between polls, which says
+        // nothing about whether the transport is stuck
+        uint32_t update_chunk_time_ms;
         uint16_t update_chunk_index;
         uint16_t update_chunk_count;
         bool update_in_progress;
