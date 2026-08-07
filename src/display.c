@@ -1,6 +1,10 @@
 #include <light_display.h>
+#include <light_platform.h>
 
 #include "light_display_internal.h"
+
+static void _light_display_set_region_full(struct display_device *dev);
+static void _light_display_drain_async(struct display_device *dev);
 
 static void _device_root_child_add(struct light_object *obj, struct light_object *child)
 {
@@ -86,6 +90,15 @@ struct display_device *light_display_init_device_va(
         dev->height = height;
         dev->bpp = bpp;
         dev->driver_ctx = driver_ctx;
+        // light_object_alloc() doesn't zero, and _device_add() below reaches the driver's
+        // init_device()/clear() while this is still the only initialisation that has run --
+        // an uninitialised update_in_progress would make the very first drain spin against
+        // a driver that has nothing in flight
+        dev->update_in_progress = false;
+        dev->update_source_buffer = NULL;
+        dev->update_chunk_index = 0;
+        dev->update_chunk_count = 0;
+        _light_display_set_region_full(dev);
 
         light_object_add_va(&dev->header, &device_root.header, format, args);
         return dev;
@@ -101,21 +114,98 @@ void light_display_command_init(struct display_device *dev)
         dev->driver_ctx->driver->init_device(dev);
         dev->driver_ctx->driver->clear(dev, 0);
 }
-// every entry point below that isn't update_async_poll() itself must not run while an
-// async update is in flight -- reset/clear/a plain sync update would stomp CS/column-address
-// state out from under an in-progress DMA transfer. rather than duplicate this guard in
-// every driver, it lives here once: block (briefly) until any in-flight update finishes
-// before doing anything else. this is a bounded, cooperative drain (repeatedly calling the
-// driver's own poll function), not a busy-wait on hardware -- the same mechanism the
-// scheduler's periodic task uses, just run inline instead of once-per-tick
-static void _light_display_drain_async(struct display_device *dev)
+// advances an in-flight update. returns true once it has completed (or been abandoned on
+// timeout), false if there is still more to send. this is the whole async state machine
+// that every async-capable driver used to carry its own near-identical copy of
+static bool _light_display_update_poll(struct display_device *dev)
 {
         const struct display_driver *drv = dev->driver_ctx->driver;
-        if(!drv->update_async_poll || !drv->update_async_is_active)
-                return;
-        while(drv->update_async_is_active(dev)) {
-                drv->update_async_poll(dev);
+        if(!dev->update_in_progress)
+                return true;
+
+        const uint16_t budget = drv->async_chunks_per_poll;
+        uint16_t completed = 0;
+        while(1) {
+                if(light_platform_get_time_since_init() - dev->update_start_time_ms > drv->async_timeout_ms) {
+                        // note this abandons light_display's bookkeeping without cancelling
+                        // whatever the transport still has in flight -- there's no ioport
+                        // abort primitive to call, and in practice this only fires when the
+                        // bus is already wedged
+                        light_error("async update timed out for device '%s', aborting", dev->header.id);
+                        dev->update_in_progress = false;
+                        return true;
+                }
+                if(!drv->async_chunk_complete(dev)) {
+                        // still in flight. with a budget set, hand the rest of the tick
+                        // back to the scheduler; with no budget spin until it lands, which
+                        // is what a driver whose chunks are a few bytes each wants (one
+                        // chunk per tick would make a full sweep take as many ticks as it
+                        // has columns)
+                        if(budget)
+                                return false;
+                        continue;
+                }
+                completed++;
+                dev->update_chunk_index++;
+                if(dev->update_chunk_index >= dev->update_chunk_count) {
+                        dev->update_in_progress = false;
+                        return true;
+                }
+                drv->async_kick(dev, dev->update_chunk_index);
+                if(budget && completed >= budget)
+                        return false;
         }
+}
+// no entry point that touches the panel may run while an update is in flight -- a
+// reset/clear, or starting a second update, would stomp CS and the chip's address
+// registers out from under a transfer the transport is still streaming. rather than
+// duplicate that guard in every driver it lives here once: cooperatively drive any
+// in-flight update to completion first. bounded work, not a hardware busy-wait -- the
+// same poll the scheduler's periodic task runs, just inline instead of once-per-tick
+static void _light_display_drain_async(struct display_device *dev)
+{
+        while(dev->update_in_progress)
+                _light_display_update_poll(dev);
+}
+static void _light_display_set_region_full(struct display_device *dev)
+{
+        dev->update_region.x0 = 0;
+        dev->update_region.y0 = 0;
+        dev->update_region.x1 = dev->width - 1;
+        dev->update_region.y1 = dev->height - 1;
+}
+// converts an inclusive LOGICAL rect into the equivalent inclusive PHYSICAL one, clamped
+// to the panel. rotation/flip are rend's business, so the mapping is asked of rend rather
+// than reimplemented here (and drivers stay in physical space, which is where they
+// already address the buffer)
+static void _light_display_set_region_logical(struct display_device *dev,
+                                                rend_point2d p0, rend_point2d p1)
+{
+        rend_point2d min, max;
+        rend_transform_rect(dev->render_ctx, p0, p1, &min, &max);
+
+        dev->update_region.x0 = min.x;
+        dev->update_region.y0 = min.y;
+        dev->update_region.x1 = max.x < dev->width ? max.x : dev->width - 1;
+        dev->update_region.y1 = max.y < dev->height ? max.y : dev->height - 1;
+}
+static void _light_display_update_start(struct display_device *dev)
+{
+        const struct display_driver *drv = dev->driver_ctx->driver;
+
+        dev->update_in_progress = true;
+        dev->update_start_time_ms = light_platform_get_time_since_init();
+        // captured once, so that a rend_context_swap_buffers() partway through can't leave
+        // later chunks reading from a buffer the app has started redrawing
+        dev->update_source_buffer = dev->render_ctx->buffer;
+        dev->update_chunk_index = 0;
+        dev->update_chunk_count = drv->async_chunk_count(dev);
+
+        if(dev->update_chunk_count == 0) {
+                dev->update_in_progress = false;
+                return;
+        }
+        drv->async_kick(dev, 0);
 }
 void light_display_command_update(struct display_device *dev)
 {
@@ -123,26 +213,41 @@ void light_display_command_update(struct display_device *dev)
         // flooding the console at DEBUG level otherwise
         light_trace("device: %s", dev->header.id);
         _light_display_drain_async(dev);
-        dev->driver_ctx->driver->update(dev);
+        _light_display_set_region_full(dev);
+        _light_display_update_start(dev);
+        _light_display_drain_async(dev);
 }
 void light_display_command_update_async(struct display_device *dev)
 {
         light_trace("device: %s", dev->header.id);
-        const struct display_driver *drv = dev->driver_ctx->driver;
-        if(!drv->update_async_start) {
-                // driver hasn't implemented async yet -- fall back to a normal blocking
-                // update rather than silently doing nothing
-                drv->update(dev);
-                return;
-        }
-        drv->update_async_start(dev);
+        _light_display_drain_async(dev);
+        _light_display_set_region_full(dev);
+        _light_display_update_start(dev);
+}
+void light_display_command_update_region(struct display_device *dev,
+                                                rend_point2d p0, rend_point2d p1)
+{
+        light_trace("device: %s", dev->header.id);
+        _light_display_drain_async(dev);
+        _light_display_set_region_logical(dev, p0, p1);
+        _light_display_update_start(dev);
+        _light_display_drain_async(dev);
+}
+void light_display_command_update_region_async(struct display_device *dev,
+                                                rend_point2d p0, rend_point2d p1)
+{
+        light_trace("device: %s", dev->header.id);
+        _light_display_drain_async(dev);
+        _light_display_set_region_logical(dev, p0, p1);
+        _light_display_update_start(dev);
 }
 bool light_display_update_in_progress(struct display_device *dev)
 {
-        const struct display_driver *drv = dev->driver_ctx->driver;
-        if(!drv->update_async_is_active)
-                return false;
-        return drv->update_async_is_active(dev);
+        return dev->update_in_progress;
+}
+void light_display_wait_for_update(struct display_device *dev)
+{
+        _light_display_drain_async(dev);
 }
 bool light_display_render_context_busy(struct rend_context *ctx)
 {
@@ -150,7 +255,7 @@ bool light_display_render_context_busy(struct rend_context *ctx)
                 struct display_device *dev = device_root.device[i];
                 if(!dev || dev->render_ctx != ctx)
                         continue;
-                if(light_display_update_in_progress(dev))
+                if(dev->update_in_progress)
                         return true;
         }
         return false;
@@ -159,11 +264,9 @@ void light_display_poll_async_updates(void)
 {
         for(uint16_t i = 0; i < next_device_id; i++) {
                 struct display_device *dev = device_root.device[i];
-                if(!dev)
+                if(!dev || !dev->update_in_progress)
                         continue;
-                const struct display_driver *drv = dev->driver_ctx->driver;
-                if(drv->update_async_poll)
-                        drv->update_async_poll(dev);
+                _light_display_update_poll(dev);
         }
 }
 void light_display_command_reset(struct display_device *dev)
