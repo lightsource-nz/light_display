@@ -11,12 +11,12 @@
 #define SH1107_SCAN_DIR_DOWN            0
 #define SH1107_SCAN_DIR_UP              1
 
-// order update_screen()/clear_screen() sweep hardware columns in. FORWARD is the
-// chip-native ascending order (column 0 .. n_columns-1); REVERSE goes the other way.
-// this is purely about the order bytes go out in -- it has no effect on which pixel
-// data lands where. defaults to FORWARD; callers that know how their rend_context's
-// rotation maps onto physical columns (see crossfire.c) can pick whichever sweep order
-// actually reads as "top to bottom" for their mounting
+// order an update sweeps hardware columns in. FORWARD is the chip-native ascending order
+// (lowest column in the update region first); REVERSE goes the other way. this is purely
+// about the order bytes go out in -- it has no effect on which pixel data lands where.
+// defaults to FORWARD; callers that know how their rend_context's rotation maps onto
+// physical columns (see crossfire.c) can pick whichever sweep order actually reads as
+// "top to bottom" for their mounting
 #define SH1107_SWEEP_FORWARD            0
 #define SH1107_SWEEP_REVERSE            1
 
@@ -83,11 +83,9 @@ extern struct display_device *light_display_sh1107_create_device(
 extern void light_display_sh1107_reset_device(struct display_device *dev);
 extern void light_display_sh1107_chip_setup(struct display_device *dev);
 extern void light_display_sh1107_clear_screen(struct display_device *dev, uint8_t value);
-extern void light_display_sh1107_update_screen(struct display_device *dev);
-// sets the hardware column sweep order (SH1107_SWEEP_* above) used by update_screen()/
-// clear_screen(). persists across light_display_command_reset() (it's a driver-level
-// preference, not chip register state), so it only needs to be called once after device
-// creation
+// sets the hardware column sweep order (SH1107_SWEEP_* above) used by updates. persists
+// across light_display_command_reset() (it's a driver-level preference, not chip register
+// state), so it only needs to be called once after device creation
 extern void light_display_sh1107_set_sweep_direction(struct display_device *dev, uint8_t direction);
 
 // SH1107 LED driver commands

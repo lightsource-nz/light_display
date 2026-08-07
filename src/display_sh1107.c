@@ -5,14 +5,18 @@
 // SH1107's GDDRAM depth is a fixed hardware constant (16 pages), not something this
 // driver's addressing scheme configures -- used to size the per-column burst buffer
 #define SH1107_MAX_PAGES 16
-// upper bound on how long one FULL async update (all columns) should ever take -- if it
-// hasn't completed within this window, something is genuinely stuck (miswired DMA channel,
-// hardware fault) and the scheduler must not be allowed to wait on it forever.
-// update_async_poll() busy-drains the whole remaining sweep in one call (see there), so
-// this is bus-bound, not tick-bound: a 128-column-wide panel (SH1107's max) is a little
-// over 1200 bytes including command overhead, well under 20ms even at a conservatively
-// slow SPI clock -- 50ms leaves ample headroom above that worst case
+// upper bound on how long one FULL update (all columns) should ever take -- if it hasn't
+// completed within this window, something is genuinely stuck (miswired DMA channel,
+// hardware fault) and the scheduler must not be allowed to wait on it forever. bus-bound
+// rather than tick-bound: a 128-column-wide panel (SH1107's max) is a little over 1200
+// bytes including command overhead, well under 20ms even at a conservatively slow SPI
+// clock -- 50ms leaves ample headroom above that worst case
 #define SH1107_ASYNC_TIMEOUT_MS 50
+// each chunk here is one column: a handful of command bytes plus an n_pages-byte burst,
+// i.e. tens of microseconds of real bus time. yielding after every single one would spend
+// a whole scheduler tick (~1ms) moving those few bytes, so a batch is completed per poll.
+// 8 keeps a worst-case full 128-column sweep to 16 polls while never monopolising a tick
+#define SH1107_CHUNKS_PER_POLL 8
 
 struct sh1107_state {
         struct io_context *io_ctx;
@@ -24,18 +28,6 @@ struct sh1107_state {
         // driver-level preference, not chip state -- set once via
         // light_display_sh1107_set_sweep_direction(), survives resets
         uint8_t sweep_direction;
-        // async update state -- see _sh1107_update_async_start()/_poll() below. sequenced
-        // by column (not page), since SH1107's vertical addressing mode auto-increments the
-        // page address within a column, making column the natural per-burst unit
-        bool update_in_progress;
-        uint16_t update_column_index;
-        uint32_t update_start_time_ms;
-        // captured once in _sh1107_update_async_start(), not re-read from
-        // dev->render_ctx->buffer on every column -- an in-flight transfer must stay
-        // immune to the caller swapping ctx->buffer mid-update (see
-        // rend_context_swap_buffers()), otherwise later-kicked columns would read from a
-        // different frame than earlier ones, tearing the transfer
-        const uint8_t *update_source_buffer;
         // moved off the stack from what used to be update_screen()'s local page_buf: an
         // async burst is read by DMA after the function that filled it returns, so it can't
         // be stack memory -- it has to survive at least until burst_is_complete()
@@ -46,21 +38,23 @@ static struct display_driver_context *_sh1107_spawn_context();
 static void _sh1107_init(struct display_device *dev);
 static void _sh1107_reset(struct display_device *dev);
 static void _sh1107_clear(struct display_device *dev, uint16_t value);
-static void _sh1107_update(struct display_device *dev);
-static void _sh1107_update_async_start(struct display_device *dev);
-static bool _sh1107_update_async_poll(struct display_device *dev);
-static bool _sh1107_update_async_is_active(struct display_device *dev);
+static uint16_t _sh1107_async_chunk_count(struct display_device *dev);
+static void _sh1107_async_kick(struct display_device *dev, uint16_t chunk_index);
+static bool _sh1107_async_chunk_complete(struct display_device *dev);
 
+// one chunk is one column: SH1107's vertical addressing mode auto-increments the page
+// address within a column, making a column the natural unit for a single burst
 static struct display_driver _driver_sh1107 = {
         .name = "display.driver:sh1107",
         .spawn_context = _sh1107_spawn_context,
         .init_device = _sh1107_init,
         .reset = _sh1107_reset,
         .clear = _sh1107_clear,
-        .update = _sh1107_update,
-        .update_async_start = _sh1107_update_async_start,
-        .update_async_poll = _sh1107_update_async_poll,
-        .update_async_is_active = _sh1107_update_async_is_active
+        .async_chunk_count = _sh1107_async_chunk_count,
+        .async_kick = _sh1107_async_kick,
+        .async_chunk_complete = _sh1107_async_chunk_complete,
+        .async_timeout_ms = SH1107_ASYNC_TIMEOUT_MS,
+        .async_chunks_per_poll = SH1107_CHUNKS_PER_POLL
 };
 
 struct display_driver *light_display_driver_sh1107()
@@ -73,12 +67,11 @@ static struct display_driver_context *_sh1107_spawn_context()
         struct display_driver_context *ctx = light_alloc(sizeof(struct display_driver_context));
         ctx->driver = light_display_driver_sh1107();
         ctx->state = light_alloc(sizeof(struct sh1107_state));
-        // light_alloc() is a plain malloc(), not zeroed -- sweep_direction and
-        // update_in_progress must be set explicitly rather than relying on them happening
-        // to start at SH1107_SWEEP_FORWARD (0) / false
+        // light_alloc() is a plain malloc(), not zeroed -- sweep_direction must be set
+        // explicitly rather than relying on it happening to start at
+        // SH1107_SWEEP_FORWARD (0)
         struct sh1107_state *state = (struct sh1107_state *) ctx->state;
         state->sweep_direction = SH1107_SWEEP_FORWARD;
-        state->update_in_progress = false;
         return ctx;
 }
 
@@ -98,17 +91,30 @@ static void _sh1107_clear(struct display_device *dev, uint16_t value)
         // behavior -- the vtable's clear slot itself was widened for 16bpp color drivers
         light_display_sh1107_clear_screen(dev, (uint8_t)value);
 }
-static void _sh1107_update(struct display_device *dev)
+// physical column == canvas x directly (see reset_device()), so the update region's x
+// extent IS the hardware column range. clamped to the panel, since the region comes from
+// caller-supplied logical coordinates. the region's y extent is deliberately ignored:
+// every column burst covers the full page depth, so this driver's region granularity is
+// column-only, and a region update repaints whole columns of the panel
+static uint16_t _sweep_count(struct display_device *dev)
 {
-        light_display_sh1107_update_screen(dev);
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
+        if(dev->update_region.x0 >= state->n_columns)
+                return 0;
+        uint16_t last = dev->update_region.x1 < state->n_columns
+                        ? dev->update_region.x1 : (uint16_t)(state->n_columns - 1);
+        return last - dev->update_region.x0 + 1;
 }
-// maps sweep index i (0 .. n_columns-1) to the actual hardware column to visit at that
-// step, per state->sweep_direction
-static uint16_t _sweep_column(struct sh1107_state *state, uint16_t i)
+// maps sweep index i (0 .. count-1) to the hardware column to visit at that step, per
+// state->sweep_direction. the reverse branch anchors to the end of the REGION, not the
+// end of the panel -- anchoring to n_columns-1 was correct only while every update was
+// implicitly full-width, and would send a region update walking outside its own range
+static uint16_t _sweep_column(struct display_device *dev, uint16_t i)
 {
+        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
         if(state->sweep_direction == SH1107_SWEEP_REVERSE)
-                return state->n_columns - 1 - i;
-        return i;
+                return dev->update_region.x0 + _sweep_count(dev) - 1 - i;
+        return dev->update_region.x0 + i;
 }
 void light_display_sh1107_set_sweep_direction(struct display_device *dev, uint8_t direction)
 {
@@ -173,8 +179,12 @@ void light_display_sh1107_clear_screen(struct display_device *dev, uint8_t value
         for(uint16_t i = 0; i < state->n_pages && i < SH1107_MAX_PAGES; i++)
                 page_buf[i] = value;
 
+        // deliberately NOT _sweep_column(): that maps an index within the current update
+        // REGION, whereas a clear always covers the whole panel. sweep direction only
+        // affects the order bytes are emitted, never where they land, and every column
+        // here gets the same uniform fill -- so a plain ascending walk is equivalent
         for(uint16_t i = 0; i < state->n_columns; i++) {
-                uint16_t column = _sweep_column(state, i);
+                uint16_t column = i;
                 _send_column_addr_unconditional(dev, column);
                 // page address is (re-)armed once per column, then the whole column's
                 // worth of pages goes out as a single burst -- the chip auto-increments
@@ -189,60 +199,25 @@ void light_display_sh1107_clear_screen(struct display_device *dev, uint8_t value
                 light_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
         }
 }
-void light_display_sh1107_update_screen(struct display_device *dev)
+static uint16_t _sh1107_async_chunk_count(struct display_device *dev)
 {
-        // ASSERT dev->driver_ctx->driver === &_driver_sh1107
-        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-
-        // straightforward, non-rotated mapping: physical column = canvas x directly.
-        // rend's buffer is row-major with horizontal bit-packing (each byte holds 8
-        // pixels from one row: buffer[y * width_bytes + x/8], bit x%8 set for the
-        // LEFTMOST pixel of that group), but SH1107 RAM in vertical addressing mode is
-        // column/page addressed, where each byte written covers 8 *vertically* stacked
-        // pixels within a single 1-pixel-wide column -- these are different bit
-        // orderings/axes entirely, so each output byte is assembled bit-by-bit from
-        // the source buffer rather than copied across directly
-        uint16_t width_bytes = (dev->width + 7) / 8;
-        const uint8_t *src = dev->render_ctx->buffer;
-        uint8_t page_buf[SH1107_MAX_PAGES];
-
-        for(uint16_t i = 0; i < state->n_columns; i++) {
-                uint16_t column = _sweep_column(state, i);
-                _send_column_addr_unconditional(dev, column);
-
-                for(uint16_t page = 0; page < state->n_pages && page < SH1107_MAX_PAGES; page++) {
-                        uint8_t out = 0;
-                        for(uint8_t bit = 0; bit < 8; bit++) {
-                                uint16_t y = page * 8 + bit;
-                                if(y >= dev->height)
-                                        break;
-                                uint8_t src_byte = src[y * width_bytes + column / 8];
-                                if(src_byte & (1 << (column % 8)))
-                                        out |= (1 << bit);
-                        }
-                        page_buf[page] = out;
-                }
-                // one continuous burst per column: the chip auto-increments its own
-                // internal page pointer between bytes within a single CS-low transfer
-                // in vertical addressing mode -- see clear_screen() for why the
-                // per-byte page-address resend this replaces was there in the first
-                // place, and why it's safe to drop for a burst
-                state->page_address = 0xFF;
-                light_display_sh1107_command_set_page_addr(dev, 0);
-                light_ioport_send_data_burst(state->io_ctx, page_buf, state->n_pages);
-        }
+        return _sweep_count(dev);
 }
-// assembles one column's worth of page bytes from the render buffer (same bit-transpose as
-// light_display_sh1107_update_screen()'s loop body, just for a single column) into
-// state->update_page_buf, then kicks off a non-blocking burst send for it. shared by
-// _sh1107_update_async_start() (first column) and _sh1107_update_async_poll() (every column
-// after)
-static void _sh1107_update_kick_column(struct display_device *dev, uint16_t sweep_index)
+// assembles one column's worth of page bytes into state->update_page_buf, then kicks off a
+// non-blocking burst send for it.
+//
+// rend's buffer is row-major with horizontal bit-packing (each byte holds 8 pixels from
+// one row: buffer[y * width_bytes + x/8], bit x%8 set for the LEFTMOST pixel of that
+// group), but SH1107 RAM in vertical addressing mode is column/page addressed, where each
+// byte written covers 8 *vertically* stacked pixels within a single 1-pixel-wide column --
+// these are different bit orderings/axes entirely, so each output byte is assembled
+// bit-by-bit from the source buffer rather than copied across directly
+static void _sh1107_async_kick(struct display_device *dev, uint16_t chunk_index)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
         uint16_t width_bytes = (dev->width + 7) / 8;
-        const uint8_t *src = state->update_source_buffer;
-        uint16_t column = _sweep_column(state, sweep_index);
+        const uint8_t *src = dev->update_source_buffer;
+        uint16_t column = _sweep_column(dev, chunk_index);
 
         _send_column_addr_unconditional(dev, column);
 
@@ -258,58 +233,18 @@ static void _sh1107_update_kick_column(struct display_device *dev, uint16_t swee
                 }
                 state->update_page_buf[page] = out;
         }
+        // one continuous burst per column: the chip auto-increments its own internal page
+        // pointer between bytes within a single CS-low transfer in vertical addressing
+        // mode -- see clear_screen() for why the per-byte page-address resend this
+        // replaces was there in the first place, and why it's safe to drop for a burst
         state->page_address = 0xFF;
         light_display_sh1107_command_set_page_addr(dev, 0);
         light_ioport_send_data_burst_async(state->io_ctx, state->update_page_buf, state->n_pages);
 }
-static void _sh1107_update_async_start(struct display_device *dev)
+static bool _sh1107_async_chunk_complete(struct display_device *dev)
 {
         struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        if(state->update_in_progress) {
-                light_warn("update already in progress for device '%s', ignoring", dev->header.id);
-                return;
-        }
-        state->update_in_progress = true;
-        state->update_column_index = 0;
-        state->update_start_time_ms = light_platform_get_time_since_init();
-        state->update_source_buffer = dev->render_ctx->buffer;
-        _sh1107_update_kick_column(dev, 0);
-}
-// drains the ENTIRE remaining sweep in one call: waits for each column's burst to actually
-// finish (tens of microseconds of real bus time) before kicking the next, rather than
-// checking once and returning on "still busy" -- the latter only ever advanced ~1 column
-// per scheduler tick (~1ms) regardless of bus speed, since a freshly-kicked burst is
-// essentially never complete by the time the very next check runs. total time for this
-// loop is bounded by real bus time for the whole remaining sweep (roughly 1-2ms for a
-// 64-column panel at 10MHz), not by tick count -- see SH1107_ASYNC_TIMEOUT_MS. the deadline
-// check runs every iteration (not just once at entry) so a genuinely stuck transfer still
-// aborts within that window instead of spinning forever inside this one call
-static bool _sh1107_update_async_poll(struct display_device *dev)
-{
-        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        if(!state->update_in_progress)
-                return true;
-
-        while(1) {
-                if(light_platform_get_time_since_init() - state->update_start_time_ms > SH1107_ASYNC_TIMEOUT_MS) {
-                        light_error("async update timed out for device '%s', aborting", dev->header.id);
-                        state->update_in_progress = false;
-                        return true;
-                }
-                if(!light_ioport_burst_is_complete(state->io_ctx))
-                        continue;
-                state->update_column_index++;
-                if(state->update_column_index >= state->n_columns) {
-                        state->update_in_progress = false;
-                        return true;
-                }
-                _sh1107_update_kick_column(dev, state->update_column_index);
-        }
-}
-static bool _sh1107_update_async_is_active(struct display_device *dev)
-{
-        struct sh1107_state *state = (struct sh1107_state *) dev->driver_ctx->state;
-        return state->update_in_progress;
+        return light_ioport_burst_is_complete(state->io_ctx);
 }
 struct display_device *light_display_sh1107_create_device(uint8_t *name, uint16_t width, uint16_t height, uint8_t bpp, struct io_context *io)
 {
