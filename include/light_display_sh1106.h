@@ -16,8 +16,8 @@
 // preference (see light_display_sh1106_set_column_offset()), not chip register state
 #define SH1106_COLUMN_OFFSET_DEFAULT     2
 
-// order update_screen()/clear_screen() sweep hardware pages in. FORWARD is the chip-native
-// ascending order (page 0 .. n_pages-1); REVERSE goes the other way. page (not column) is the
+// order an update sweeps hardware pages in. FORWARD is the chip-native ascending order
+// (lowest page in the update region first); REVERSE goes the other way. page (not column) is the
 // outer/bursted dimension for SH1106, since it's the column address that auto-increments within
 // a page -- the opposite of SH1107, where the page address auto-increments within a column.
 // defaults to FORWARD; callers that know how their rend_context's rotation maps onto physical
@@ -81,11 +81,9 @@ extern struct display_device *light_display_sh1106_create_device(
 extern void light_display_sh1106_reset_device(struct display_device *dev);
 extern void light_display_sh1106_chip_setup(struct display_device *dev);
 extern void light_display_sh1106_clear_screen(struct display_device *dev, uint8_t value);
-extern void light_display_sh1106_update_screen(struct display_device *dev);
-// sets the hardware page sweep order (SH1106_SWEEP_* above) used by update_screen()/
-// clear_screen(). persists across light_display_command_reset() (it's a driver-level
-// preference, not chip register state), so it only needs to be called once after device
-// creation
+// sets the hardware page sweep order (SH1106_SWEEP_* above) used by updates. persists
+// across light_display_command_reset() (it's a driver-level preference, not chip register
+// state), so it only needs to be called once after device creation
 extern void light_display_sh1106_set_sweep_direction(struct display_device *dev, uint8_t direction);
 // sets the physical column offset (see SH1106_COLUMN_OFFSET_DEFAULT above) added to every
 // canvas x coordinate before it's written to the chip's column address register. persists
