@@ -46,7 +46,6 @@ extern struct display_device *light_display_st7789_create_device(
 extern void light_display_st7789_reset_device(struct display_device *dev);
 extern void light_display_st7789_chip_setup(struct display_device *dev);
 extern void light_display_st7789_clear_screen(struct display_device *dev, uint16_t color);
-extern void light_display_st7789_update_screen(struct display_device *dev);
 // sets the physical GDDRAM offset (see ST7789_*_OFFSET_DEFAULT above) added to the
 // column/row window before every CASET/RASET. persists across
 // light_display_command_reset() -- it's a driver-level/mounting preference, not chip
