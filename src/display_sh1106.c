@@ -37,6 +37,7 @@ static void _sh1106_init(struct display_device *dev);
 static void _sh1106_reset(struct display_device *dev);
 static void _sh1106_clear(struct display_device *dev, uint16_t value);
 static uint16_t _sh1106_async_chunk_count(struct display_device *dev);
+static uint16_t _sh1106_async_chunks_per_poll(struct display_device *dev);
 static void _sh1106_async_kick(struct display_device *dev, uint16_t chunk_index);
 static bool _sh1106_async_chunk_complete(struct display_device *dev);
 
@@ -52,7 +53,7 @@ static struct display_driver _driver_sh1106 = {
         .async_kick = _sh1106_async_kick,
         .async_chunk_complete = _sh1106_async_chunk_complete,
         .async_timeout_ms = SH1106_ASYNC_TIMEOUT_MS,
-        .async_chunks_per_poll = SH1106_CHUNKS_PER_POLL
+        .async_chunks_per_poll = _sh1106_async_chunks_per_poll
 };
 
 struct display_driver *light_display_driver_sh1106()
@@ -200,6 +201,11 @@ void light_display_sh1106_clear_screen(struct display_device *dev, uint8_t value
 static uint16_t _sh1106_async_chunk_count(struct display_device *dev)
 {
         return _sweep_count(dev);
+}
+// always a page, however the region was shaped, so the answer doesn't vary per update
+static uint16_t _sh1106_async_chunks_per_poll(struct display_device *dev)
+{
+        return SH1106_CHUNKS_PER_POLL;
 }
 // assembles one page's worth of column bytes into state->update_col_buf, then kicks off a
 // non-blocking burst send for it.
