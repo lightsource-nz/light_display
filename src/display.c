@@ -199,8 +199,16 @@ static void _light_display_set_region_logical(struct display_device *dev,
         rend_point2d min, max;
         rend_transform_rect(dev->render_ctx, p0, p1, &min, &max);
 
-        dev->update_region.x0 = min.x;
-        dev->update_region.y0 = min.y;
+        // BOTH corners are clamped, not just the far one. a logical coordinate outside the
+        // canvas transforms to a negative physical coordinate, which rend_point2d's uint16_t
+        // turns into a huge positive value -- clamping only max then leaves x0 > x1, and an
+        // inverted region has a meaningless chunk count. the update would never complete,
+        // update_in_progress would never clear, and every later frame would be refused
+        // because the render context looks permanently busy: a frozen display rather than
+        // one dropped frame. rend_transform_rect() guarantees min <= max componentwise, so
+        // clamping both against the same bound cannot itself invert them
+        dev->update_region.x0 = min.x < dev->width ? min.x : dev->width - 1;
+        dev->update_region.y0 = min.y < dev->height ? min.y : dev->height - 1;
         dev->update_region.x1 = max.x < dev->width ? max.x : dev->width - 1;
         dev->update_region.y1 = max.y < dev->height ? max.y : dev->height - 1;
 }
