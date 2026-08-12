@@ -20,10 +20,5 @@ target_link_libraries(
         light_core
 )
 
-if(LIGHT_SYSTEM STREQUAL PICO_SDK AND LIGHT_PLATFORM STREQUAL TARGET)
-        target_link_libraries(
-                light_backlight INTERFACE
-                hardware_gpio
-                hardware_pwm
-        )
-endif()
+# no hardware_* link block any more: PWM lives behind light_platform, so this module names no
+# chip peripheral and needs nothing platform-specific to build

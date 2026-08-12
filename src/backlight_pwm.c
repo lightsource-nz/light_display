@@ -1,11 +1,7 @@
 #include <light_backlight.h>
+#include <light_platform.h>
 
 #include "light_backlight_internal.h"
-
-#if(LIGHT_SYSTEM == SYSTEM_PICO_SDK)
-#include <hardware/gpio.h>
-#include <hardware/pwm.h>
-#endif
 
 // divides the system clock before the PWM counter. with a wrap of
 // LIGHT_BACKLIGHT_LEVEL_MAX this puts the carrier around 9kHz on a 150MHz RP2350 and 8kHz on
@@ -17,8 +13,9 @@ struct backlight_pwm_state {
         uint8_t pin;
         // true when the panel's enable line SINKS current, so full brightness is a low duty
         bool active_low;
-        uint8_t slice;
-        uint8_t channel;
+        // the platform's PWM handle; NULL where the platform has none. slice and channel
+        // bookkeeping lives behind it now rather than being tracked here
+        struct lp_pwm *pwm;
 };
 
 static struct backlight_driver_context *_pwm_spawn_context();
@@ -46,46 +43,35 @@ static struct backlight_driver_context *_pwm_spawn_context()
         // light_alloc() isn't zeroed, same as every other driver state in this codebase
         state->pin = 0;
         state->active_low = false;
-        state->slice = 0;
-        state->channel = 0;
+        state->pwm = NULL;
         return ctx;
 }
 
 static void _pwm_init(struct backlight_device *dev)
 {
         struct backlight_pwm_state *state = (struct backlight_pwm_state *) dev->driver_ctx->state;
-#if(LIGHT_SYSTEM == SYSTEM_PICO_SDK)
-        gpio_set_function(state->pin, GPIO_FUNC_PWM);
-        state->slice = (uint8_t)pwm_gpio_to_slice_num(state->pin);
-        state->channel = (uint8_t)pwm_gpio_to_channel(state->pin);
-
-        pwm_config cfg = pwm_get_default_config();
-        // the integer divider variant, not pwm_config_set_clkdiv() -- that one takes a float,
-        // and this tree keeps floating point out of driver paths so the same code costs the
-        // same on an FPU-less RP2040
-        pwm_config_set_clkdiv_int(&cfg, BACKLIGHT_PWM_CLKDIV);
-        // wrap AT the level maximum, so a level maps straight onto a duty with no rescaling
-        // and full brightness is a genuinely unbroken output rather than one count short
-        pwm_config_set_wrap(&cfg, LIGHT_BACKLIGHT_LEVEL_MAX);
-        pwm_init(state->slice, &cfg, true);
-#endif
-        light_info("pwm backlight '%s' on pin %d (active %s)",
-                        dev->header.id, state->pin, state->active_low ? "low" : "high");
+        state->pwm = light_platform_pwm_open(state->pin);
+        // NULL is the normal answer on a platform with no PWM, not a failure. every call
+        // below tolerates it, and the level the core tracks in the device struct is the whole
+        // of what such a build could observe anyway -- which keeps everything layered above
+        // this testable off-target
+        if(state->pwm) {
+                // wrap AT the level maximum, so a level maps straight onto a duty with no
+                // rescaling and full brightness is a genuinely unbroken output rather than
+                // one count short
+                light_platform_pwm_configure(state->pwm, LIGHT_BACKLIGHT_LEVEL_MAX,
+                                BACKLIGHT_PWM_CLKDIV);
+        }
+        light_info("pwm backlight '%s' on pin %d (active %s, group %d)",
+                        dev->header.id, state->pin, state->active_low ? "low" : "high",
+                        light_platform_pwm_get_group(state->pwm));
 }
 
 static void _pwm_set_level(struct backlight_device *dev, uint16_t level)
 {
-#if(LIGHT_SYSTEM == SYSTEM_PICO_SDK)
         struct backlight_pwm_state *state = (struct backlight_pwm_state *) dev->driver_ctx->state;
         uint16_t duty = state->active_low ? (LIGHT_BACKLIGHT_LEVEL_MAX - level) : level;
-        pwm_set_chan_level(state->slice, state->channel, duty);
-#else
-        // host builds have no PWM hardware. tracking the level in the device struct (which
-        // the core already does) is the whole of what a host build can observe, so this is a
-        // no-op rather than a failure -- it keeps anything layered above testable off-target
-        (void)dev;
-        (void)level;
-#endif
+        light_platform_pwm_set_duty(state->pwm, duty);
 }
 
 struct backlight_device *light_backlight_pwm_create_device(uint8_t *name, uint8_t pin, bool active_low)
