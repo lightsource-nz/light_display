@@ -1,6 +1,5 @@
-#   ST7735S display driver. In-tree for now, unlike the other light_display_* drivers, which
-# are each their own repository and a submodule here -- it is published once it has been proven
-# on hardware, rather than creating a repository for something unverified.
+#   ST7735/ST7735S display driver, in the same shape as every other light_display_* module:
+# an INTERFACE library that a consuming project adds with add_subdirectory().
 
 add_library(light_display_st7735 INTERFACE)
 
