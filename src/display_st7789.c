@@ -27,6 +27,7 @@ struct st7789_state {
 };
 
 static struct display_driver_context *_st7789_spawn_context();
+static void _st7789_destroy_context(struct display_driver_context *ctx);
 static void _st7789_init(struct display_device *dev);
 static void _st7789_reset(struct display_device *dev);
 static void _st7789_clear(struct display_device *dev, uint16_t value);
@@ -41,6 +42,7 @@ static bool _st7789_async_chunk_complete(struct display_device *dev);
 static struct display_driver _driver_st7789 = {
         .name = "display.driver:st7789",
         .spawn_context = _st7789_spawn_context,
+        .destroy_context = _st7789_destroy_context,
         .init_device = _st7789_init,
         .reset = _st7789_reset,
         .clear = _st7789_clear,
@@ -66,6 +68,15 @@ static struct display_driver_context *_st7789_spawn_context()
         state->col_offset = ST7789_COL_OFFSET_DEFAULT;
         state->row_offset = ST7789_ROW_OFFSET_DEFAULT;
         return ctx;
+}
+
+//   the counterpart to _st7789_spawn_context(), called from the device release path
+// when the device this context was spawned for is freed. Frees in the reverse of
+// the order allocated: the state first, then the context that points at it
+static void _st7789_destroy_context(struct display_driver_context *ctx)
+{
+        light_free((void *)ctx->state);
+        light_free(ctx);
 }
 
 static void _st7789_init(struct display_device *dev)
