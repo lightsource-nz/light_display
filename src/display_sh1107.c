@@ -35,6 +35,7 @@ struct sh1107_state {
 };
 
 static struct display_driver_context *_sh1107_spawn_context();
+static void _sh1107_destroy_context(struct display_driver_context *ctx);
 static void _sh1107_init(struct display_device *dev);
 static void _sh1107_reset(struct display_device *dev);
 static void _sh1107_clear(struct display_device *dev, uint16_t value);
@@ -48,6 +49,7 @@ static bool _sh1107_async_chunk_complete(struct display_device *dev);
 static struct display_driver _driver_sh1107 = {
         .name = "display.driver:sh1107",
         .spawn_context = _sh1107_spawn_context,
+        .destroy_context = _sh1107_destroy_context,
         .init_device = _sh1107_init,
         .reset = _sh1107_reset,
         .clear = _sh1107_clear,
@@ -74,6 +76,15 @@ static struct display_driver_context *_sh1107_spawn_context()
         struct sh1107_state *state = (struct sh1107_state *) ctx->state;
         state->sweep_direction = SH1107_SWEEP_FORWARD;
         return ctx;
+}
+
+//   the counterpart to _sh1107_spawn_context(), called from the device release path
+// when the device this context was spawned for is freed. Frees in the reverse of
+// the order allocated: the state first, then the context that points at it
+static void _sh1107_destroy_context(struct display_driver_context *ctx)
+{
+        light_free((void *)ctx->state);
+        light_free(ctx);
 }
 
 static void _sh1107_init(struct display_device *dev)
