@@ -18,6 +18,7 @@ struct st7735_state {
 };
 
 static struct display_driver_context *_st7735_spawn_context();
+static void _st7735_destroy_context(struct display_driver_context *ctx);
 static void _st7735_init(struct display_device *dev);
 static void _st7735_reset(struct display_device *dev);
 static void _st7735_clear(struct display_device *dev, uint16_t value);
@@ -29,6 +30,7 @@ static bool _st7735_async_chunk_complete(struct display_device *dev);
 static struct display_driver _driver_st7735 = {
         .name = "display.driver:st7735",
         .spawn_context = _st7735_spawn_context,
+        .destroy_context = _st7735_destroy_context,
         .init_device = _st7735_init,
         .reset = _st7735_reset,
         .clear = _st7735_clear,
@@ -54,6 +56,15 @@ static struct display_driver_context *_st7735_spawn_context()
         state->col_offset = ST7735_COL_OFFSET_DEFAULT;
         state->row_offset = ST7735_ROW_OFFSET_DEFAULT;
         return ctx;
+}
+
+//   the counterpart to _st7735_spawn_context(), called from the device release path
+// when the device this context was spawned for is freed. Frees in the reverse of
+// the order allocated: the state first, then the context that points at it
+static void _st7735_destroy_context(struct display_driver_context *ctx)
+{
+        light_free((void *)ctx->state);
+        light_free(ctx);
 }
 
 static void _st7735_init(struct display_device *dev)
