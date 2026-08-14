@@ -35,6 +35,11 @@ struct display_driver
 {
         const uint8_t *name;
         struct display_driver_context *(*spawn_context)();
+        //   frees whatever spawn_context() allocated. Called when the device holding that
+        // context is released, so a context outlives exactly the device it was spawned for.
+        // OPTIONAL: a driver whose context is not heap-allocated leaves this NULL and the
+        // release path skips it
+        void (*destroy_context)(struct display_driver_context *ctx);
         void (*init_device)(struct display_device *);
         void (*reset)(struct display_device *);
         // matches light_display_command_clear()'s own uint16_t -- previously uint8_t here,

@@ -14,7 +14,13 @@ static void _device_root_child_add(struct light_object *obj, struct light_object
 }
 static void _device_release(struct light_object *obj)
 {
-        light_free(to_display_device(obj));
+        struct display_device *dev = to_display_device(obj);
+        //   the driver context was spawned for this device alone, so it goes with it. Without
+        // this the device is reclaimed and its context -- plus whatever driver state hangs
+        // off it -- is not, a leak that only becomes visible once teardown is exercised
+        if(dev->driver_ctx && dev->driver_ctx->driver->destroy_context)
+                dev->driver_ctx->driver->destroy_context(dev->driver_ctx);
+        light_free(dev);
 }
 static void _device_add(struct light_object *obj, struct light_object *parent) {
         struct display_device *dev = to_display_device(obj);
@@ -51,9 +57,8 @@ void light_display_init()
 // when it was added, put() drops the one it has held since it was created. Only the second
 // takes the count to zero, and only that runs _device_release() to free it.
 //
-//   KNOWN GAP: the driver context from spawn_context() is not freed, because struct
-// display_driver has no counterpart to spawn_context() to free it with. The devices themselves
-// are reclaimed; their driver contexts and driver state are not
+//   the driver context spawned for each device goes with it: _device_release() calls the
+// driver's destroy_context(), which is spawn_context()'s counterpart
 void light_display_shutdown()
 {
         light_trace("tearing down %d display device(s)", next_device_id);
