@@ -19,12 +19,14 @@ struct backlight_pwm_state {
 };
 
 static struct backlight_driver_context *_pwm_spawn_context();
+static void _pwm_destroy_context(struct backlight_driver_context *ctx);
 static void _pwm_init(struct backlight_device *dev);
 static void _pwm_set_level(struct backlight_device *dev, uint16_t level);
 
 static struct backlight_driver _driver_pwm = {
         .name = "backlight.driver:pwm",
         .spawn_context = _pwm_spawn_context,
+        .destroy_context = _pwm_destroy_context,
         .init_device = _pwm_init,
         .set_level = _pwm_set_level
 };
@@ -45,6 +47,27 @@ static struct backlight_driver_context *_pwm_spawn_context()
         state->active_low = false;
         state->pwm = NULL;
         return ctx;
+}
+
+//   the counterpart to _pwm_spawn_context(), called from the device release path
+// when the device this context was spawned for is freed. Frees in the reverse of
+// the order allocated: the state first, then the context that points at it
+static void _pwm_destroy_context(struct backlight_driver_context *ctx)
+{
+        struct backlight_pwm_state *state = (struct backlight_pwm_state *) ctx->state;
+        //   the PWM block is a hardware resource claimed by light_platform_pwm_open(), not
+        // memory: freeing the state without closing it leaves the block claimed for the rest
+        // of the run, and the next open() of that pin fails.
+        //
+        //   the pin is driven to its INACTIVE level on the way out -- active_low is exactly
+        // that level -- so teardown leaves the panel dark rather than stuck at whatever duty
+        // it happened to be showing. close() on its own would leave the pin as it was
+        if(state->pwm) {
+                light_platform_pwm_release_pin(state->pwm, state->active_low);
+                light_platform_pwm_close(state->pwm);
+        }
+        light_free((void *)ctx->state);
+        light_free(ctx);
 }
 
 static void _pwm_init(struct backlight_device *dev)

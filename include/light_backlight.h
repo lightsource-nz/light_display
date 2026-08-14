@@ -22,6 +22,11 @@ struct backlight_driver
 {
         const uint8_t *name;
         struct backlight_driver_context *(*spawn_context)();
+        //   frees whatever spawn_context() allocated. Called when the device holding that
+        // context is released, so a context outlives exactly the device it was spawned for.
+        // OPTIONAL: a driver whose context is not heap-allocated leaves this NULL and the
+        // release path skips it
+        void (*destroy_context)(struct backlight_driver_context *ctx);
         void (*init_device)(struct backlight_device *);
         // applies a level in 0..LIGHT_BACKLIGHT_LEVEL_MAX. the driver deals in nothing else
         // -- fading, timing and clamping are light_backlight's, because they would otherwise
