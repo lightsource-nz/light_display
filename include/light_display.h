@@ -118,6 +118,9 @@ struct display_device_root {
 #define to_display_device(ptr) container_of(ptr, struct display_device, header)
 
 extern void light_display_init();
+// the inverse of light_display_init(): releases every device and balances the root's count.
+// called from the module's LF_EVENT_MODULE_UNLOAD handler
+extern void light_display_shutdown();
 
 extern struct display_device_root *light_display_device_get_root();
 extern struct display_device *light_display_device_get(uint8_t *name);

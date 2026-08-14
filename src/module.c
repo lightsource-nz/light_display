@@ -15,9 +15,13 @@ static void _module_event(const struct light_module *module, uint8_t event, void
                 light_display_init();
                 light_module_register_periodic_task(&light_display, "light_display_task", _module_task);
                 break;
-                // TODO implement unregister for event hooks
+                //   the mirror image of LOAD above, in reverse: the task comes out of the
+                // schedule BEFORE the state it polls is torn down, or the next tick would run
+                // _module_task() against released devices
                 case LF_EVENT_MODULE_UNLOAD:
-                break; 
+                light_module_unregister_periodic_task(&light_display, _module_task);
+                light_display_shutdown();
+                break;
         }
 }
 static uint8_t _module_task(struct light_application *app)

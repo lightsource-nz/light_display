@@ -40,8 +40,37 @@ static volatile uint16_t next_device_id;
 void light_display_init()
 {
         next_device_id = 0;
-        light_object_init(&device_root.header, &ltype_display_device_root);
+        light_object_init_static(&device_root.header, &ltype_display_device_root);
         light_object_add(&device_root.header, NULL, "root_device");
+}
+//   the exact inverse of light_display_init(), for LF_EVENT_MODULE_UNLOAD. Devices are torn
+// down in the reverse of the order they were created, so anything set up against an earlier
+// device still has it while it goes.
+//
+//   each device needs BOTH calls: del() detaches it and hands back the reference the root took
+// when it was added, put() drops the one it has held since it was created. Only the second
+// takes the count to zero, and only that runs _device_release() to free it.
+//
+//   KNOWN GAP: the driver context from spawn_context() is not freed, because struct
+// display_driver has no counterpart to spawn_context() to free it with. The devices themselves
+// are reclaimed; their driver contexts and driver state are not
+void light_display_shutdown()
+{
+        light_trace("tearing down %d display device(s)", next_device_id);
+        for(uint16_t i = next_device_id; i > 0; i--) {
+                struct display_device *dev = device_root.device[i - 1];
+                if(!dev)
+                        continue;
+                device_root.device[i - 1] = NULL;
+                light_object_del(&dev->header);
+                light_object_put(&dev->header);
+        }
+        next_device_id = 0;
+
+        //   the root is file-scope storage, marked static at init, so this drops its count to
+        // zero without releasing anything -- there is nothing to free, and its release hook is
+        // NULL in any case. It is here so the count is balanced rather than left dangling
+        light_object_put(&device_root.header);
 }
 struct display_device_root *light_display_device_get_root()
 {
