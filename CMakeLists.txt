@@ -29,7 +29,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
         include(${LIGHT_PATH}/external/light_preinit.cmake)
 
-        project(light-display C CXX ASM)
+        #   the project and its display-core module share this name. Harmless here -- project()
+        # and add_library() are different namespaces, and the group declares no target of its own
+        # -- but it is why the consuming side passes a MARKER to light_resolve_project()
+        project(light_display C CXX ASM)
 
         add_subdirectory(${LIGHT_PATH} light_framework)
 

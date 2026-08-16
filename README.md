@@ -1,7 +1,11 @@
-# light-display
+# light_display
 
 Display support for the light framework: the display core, the panel drivers built on it, and
 backlight control.
+
+Note that this project and its display-core module share the name `light_display` -- the group
+is this repository, the module is `module/light_display` inside it. That matters in one place
+only, and it is handled: see *Using it* below.
 
 | module | what it is |
 |---|---|
@@ -41,14 +45,21 @@ git log --oneline <import-commit>^2                          # the module's own 
 Consuming projects resolve this repository by path rather than vendoring it as a submodule:
 
 ```cmake
-light_resolve_project(LIGHT_DISPLAY light-display)
+light_resolve_project(LIGHT_DISPLAY light_display MARKER module/light_display/CMakeLists.txt)
 add_subdirectory(${LIGHT_DISPLAY_PATH} light_display_group)
 ```
 
 `light_resolve_project()` comes from the framework (`cmake/util/light_resolve.cmake`) and looks
-in this order: an existing `LIGHT_DISPLAY_PATH`, then `$ENV{LIGHT_DISPLAY_PATH}`, then a sibling
-checkout at `../light-display`. So the default layout is simply this repository sitting beside
-the project that uses it.
+in this order: an existing `LIGHT_DISPLAY_PATH`, then `$ENV{LIGHT_DISPLAY_PATH}`, then an
+in-project `module/light_display`, then a sibling checkout at `../light_display`. So the default
+layout is simply this repository sitting beside the project that uses it.
+
+**Pass the `MARKER`.** It is the one place the shared name bites. `module/light_display` is both
+"an in-project checkout of the group" and "a checkout of the display-core module" -- and the
+resolver prefers it over the sibling. Without a marker that only the group has, a stray module
+checkout resolves as if it were the whole group, `add_subdirectory` succeeds, and the build then
+fails on six drivers that were never added, naming none of the cause.
+`module/light_display/CMakeLists.txt` exists only in the group, so it settles the question.
 
 Adding the group defines **every** module, and that costs a consumer nothing: all of them except
 `light_display` are INTERFACE libraries, which contribute no sources until something links them.
