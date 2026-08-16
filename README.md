@@ -20,8 +20,21 @@ pointers per consuming project, and seven version numbers to keep in step. Nothi
 by it: a change to the display core's device contract lands in the drivers at the same moment,
 and as separate repositories git could not express that as one commit.
 
-Each module's history is preserved -- they were imported with `git subtree`, so `git log` and
-`git blame` still work through the move.
+Each module's history is preserved: they were imported with `git subtree`, so every original
+commit is in this repository and `git blame` reaches straight through the move (blame on
+`module/light_display/src/display.c` still reports commits from 2024, under their original
+`src/display.c` paths).
+
+One wrinkle worth knowing, because it looks like data loss and is not. A path-filtered
+`git log -- module/light_backlight` shows only the import commit: git's history simplification
+stops at a merge whose first parent already contains the result. The commits are there --
+
+```sh
+git log --oneline --full-history -- module/light_backlight   # includes the merges
+git log --oneline <import-commit>^2                          # the module's own history alone
+```
+
+-- and plain `git log` with no path filter lists them all.
 
 ## Using it
 
