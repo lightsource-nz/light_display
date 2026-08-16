@@ -33,6 +33,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
         add_subdirectory(${LIGHT_PATH} light_framework)
 
+        #   font-crusher, BEFORE rend and for rend's benefit. rend declares FONT_CRUSHER_PATH
+        # itself but defaults it relative to ITSELF, which lands under its own directory and
+        # misses any real checkout; Findcrush.cmake then falls back to fetching font-crusher
+        # from GitHub and building it, which is what a standalone configure here failed on
+        # before this line existed. OPTIONAL, because that fetch is a legitimate fallback for
+        # someone who has no local checkout -- this only makes a local one win.
+        light_resolve_project(FONT_CRUSHER font-crusher OPTIONAL)
+
         #   light_display links rend for its render contexts. rend is not part of this group and
         # is not vendored here -- it is resolved the same way everything else is, so a sibling
         # checkout needs no configuration at all
