@@ -4,10 +4,12 @@
 #include "light_backlight_internal.h"
 
 // divides the system clock before the PWM counter. with a wrap of
-// LIGHT_BACKLIGHT_LEVEL_MAX this puts the carrier around 9kHz on a 150MHz RP2350 and 8kHz on
-// a 125MHz RP2040 -- far above anything the eye or a camera shutter will pick up as flicker,
-// and low enough not to trouble a simple transistor or LED driver
-#define BACKLIGHT_PWM_CLKDIV            16
+// LIGHT_BACKLIGHT_LEVEL_MAX this puts the carrier around 30kHz on a 150MHz RP2350 and 25kHz
+// on a 125MHz RP2040 -- above anything the eye or a camera shutter will pick up as flicker,
+// AND above the audible range, unlike the 8-9kHz this used to run at (which turned out to be
+// squarely audible as an LED-driver whine on at least one board's LCD backlight). Duty
+// resolution is unaffected: that comes from the wrap alone, not from this divider
+#define BACKLIGHT_PWM_CLKDIV            5
 
 struct backlight_pwm_state {
         uint8_t pin;
