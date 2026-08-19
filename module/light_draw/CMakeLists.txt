@@ -59,9 +59,9 @@ target_include_directories(
 
 target_sources(
         light_draw INTERFACE
+        ${CMAKE_CURRENT_LIST_DIR}/src/module.c
         ${CMAKE_CURRENT_LIST_DIR}/src/light_draw.c
         ${CMAKE_CURRENT_LIST_DIR}/src/light_draw_api.c
-        ${CMAKE_CURRENT_LIST_DIR}/src/light_draw_draw.c
 )
 
 if(DEFINED LIGHT_DRAW_DEBUG_PIXEL_TRACE)
@@ -82,3 +82,15 @@ target_link_libraries(
         light_draw INTERFACE
         light_core
 )
+
+#   tests are HOST ONLY: they run the drawing code and inspect the buffer it produced, so the
+# binary has to execute on the machine doing the building. The guard is here so test/ is never
+# even reached on a target build -- the same arrangement light_framework_mk3 uses, and
+# include(CTest) rather than bare enable_testing() for the same reason: BUILD_TESTING lets a
+# consuming project switch the suite off without editing this
+if(LIGHT_PLATFORM STREQUAL HOST)
+        include(CTest)
+        if(BUILD_TESTING)
+                add_subdirectory(test)
+        endif()
+endif()

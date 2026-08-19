@@ -21,4 +21,9 @@
         }
 
         DefaultTarget = 'light_draw_demo'
+
+        Test = @{
+                Preset = 'conf-light_display-host-debug'
+                Ctest  = $true
+        }
 }

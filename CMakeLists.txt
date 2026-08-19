@@ -59,6 +59,17 @@ endif()
 # panel plus a fixed geometry, and it links the sh1107 driver. CMake resolves link targets at
 # generate time and would accept either order, but declaring a dependency after its dependent
 # reads as an accident to anyone editing this later.
+#   testing must be enabled at the ROOT for ctest to see tests registered in subdirectories --
+# module/light_draw's own guard decides whether its suite is added, but without this the root
+# build tree gets no CTestTestfile at all and `ctest` reports "No tests were found". Consuming
+# projects (screen-test, crossfire) already do this at their roots; this is for the standalone
+# host build. include(CTest) rather than bare enable_testing() so BUILD_TESTING can switch the
+# suite off. HOST only for the same reason as the module-level guard: a cross-compiled test
+# binary cannot run.
+if(LIGHT_PLATFORM STREQUAL HOST)
+        include(CTest)
+endif()
+
 add_subdirectory(module/light_display)
 add_subdirectory(module/light_draw)
 add_subdirectory(module/light_backlight)
