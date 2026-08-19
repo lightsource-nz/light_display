@@ -7,15 +7,6 @@
  * 
  */
 
-/*
- *  --> TODO: implement optimized methods for filling horizontal spans of
- *      pixels in memory simultaneously
- *      [https://github.com/lightsource-nz/light_draw/issues/2]
- *  --> TODO: implement mirroring, rotation and other linear transforms
- *      [https://github.com/lightsource-nz/light_draw/issues/3]
- *  --> TODO: implement support for grayscale and colour pixel formats
- */
-
 #include <light_draw.h>
 #include "light_draw_internal.h"
 
