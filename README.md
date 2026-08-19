@@ -10,6 +10,7 @@ only, and it is handled: see *Using it* below.
 | module | what it is |
 |---|---|
 | `light_display` | the display core -- device registry, chunked/region flushing, render-context binding. The only compiled library here; everything else is an INTERFACE library. |
+| `light_draw` | the render layer -- image buffers, drawing primitives, fonts. Formerly the standalone `rend` project, now vendored as part of this group. |
 | `light_backlight` | PWM backlight control with fades, driven through `light_platform`'s PWM API |
 | `light_display_sh1106` | SH1106 monochrome OLED controller |
 | `light_display_sh1107` | SH1107 monochrome OLED controller |
@@ -71,8 +72,9 @@ target_link_libraries(my_app PRIVATE light_display light_display_st7789 light_ba
 
 ## Dependencies
 
-`light_display` links `rend` (the framework's render layer), `light_ioport` (transport
-abstraction, part of the framework) and `light_core`. The drivers link `light_display`.
+`light_display` links `light_draw` (the render layer, part of this group), `light_ioport`
+(transport abstraction, part of the framework) and `light_core`. The drivers link
+`light_display`.
 
 A consuming project has all of these already. Building this repository standalone needs the
-framework and `rend` resolvable -- see the top of `CMakeLists.txt`.
+framework resolvable -- see the top of `CMakeLists.txt`.

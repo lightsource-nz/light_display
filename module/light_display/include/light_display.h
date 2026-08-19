@@ -3,7 +3,7 @@
 
 #include <light.h>
 #include <light_ioport.h>
-#include <rend.h>
+#include <light_draw.h>
 
 #include <stdint.h>
 
@@ -14,7 +14,7 @@
 #define LIGHT_DISPLAY_MAX_DEVICES               16
 
 // an inclusive rectangle in PHYSICAL buffer coordinates (not the caller's logical,
-// possibly rotated, rend space -- see light_display_command_update_region())
+// possibly rotated, light_draw space -- see light_display_command_update_region())
 struct display_region {
         uint16_t x0;
         uint16_t y0;
@@ -55,7 +55,7 @@ struct display_driver
         uint16_t (*async_chunk_count)(struct display_device *);
         // pushes chunk chunk_index of dev->update_region, reading pixels from
         // dev->update_source_buffer (captured once at start, so a mid-update
-        // rend_context_swap_buffers() can't tear the transfer). must start the transfer
+        // light_draw_context_swap_buffers() can't tear the transfer). must start the transfer
         // without waiting for it -- completion is reported through async_chunk_complete()
         void (*async_kick)(struct display_device *, uint16_t chunk_index);
         // has the chunk most recently passed to async_kick() finished transferring?
@@ -95,7 +95,7 @@ struct display_device {
         uint16_t width;
         uint16_t height;
         uint8_t bpp;
-        struct rend_context *render_ctx;
+        struct light_draw_context *render_ctx;
         struct display_driver_context *driver_ctx;
 
         // update state, owned by light_display and read by drivers -- see struct
@@ -143,7 +143,7 @@ extern struct display_device *light_display_init_device_va(
                 struct display_driver_context *driver_ctx,
                 uint16_t width, uint16_t height, uint8_t bpp,
                 uint8_t *format, va_list args);
-extern void light_display_set_render_context(struct display_device *dev, struct rend_context *ctx);
+extern void light_display_set_render_context(struct display_device *dev, struct light_draw_context *ctx);
 extern void light_display_command_init(struct display_device *dev);
 extern void light_display_command_reset(struct display_device *dev);
 extern void light_display_command_update(struct display_device *dev);
@@ -152,11 +152,11 @@ extern void light_display_command_clear(struct display_device *dev, uint16_t val
 // completion in the background by light_display's own periodic task (see module.c).
 // don't mutate dev->render_ctx->buffer while an update is in flight -- either check
 // light_display_update_in_progress() first, or render through a double-buffered context
-// (rend_context_enable_double_buffer()) and gate the swap on
+// (light_draw_context_enable_double_buffer()) and gate the swap on
 // light_display_render_context_busy()
 extern void light_display_command_update_async(struct display_device *dev);
 // as above, but pushes only the pixels inside the given rectangle. p0/p1 are inclusive
-// corners in LOGICAL (rend) coordinates -- the same space the caller draws in, so a
+// corners in LOGICAL (light_draw) coordinates -- the same space the caller draws in, so a
 // rotated context is handled here rather than by every caller. drivers honour the region
 // at whatever granularity their addressing scheme makes natural and may round it outward
 // (SH1107, which sequences whole columns, keeps the x extent and rounds y to the full
@@ -167,9 +167,9 @@ extern void light_display_command_update_async(struct display_device *dev);
 // panel shows -- anything else that changed since the last update will not be sent. use
 // the full-screen update above whenever that isn't certain
 extern void light_display_command_update_region(struct display_device *dev,
-                                                rend_point2d p0, rend_point2d p1);
+                                                light_draw_point2d p0, light_draw_point2d p1);
 extern void light_display_command_update_region_async(struct display_device *dev,
-                                                rend_point2d p0, rend_point2d p1);
+                                                light_draw_point2d p0, light_draw_point2d p1);
 extern bool light_display_update_in_progress(struct display_device *dev);
 // drives any in-flight async update on this device to completion and returns once the
 // render buffer is no longer being read. callers rendering into a single (non-double-
@@ -178,8 +178,8 @@ extern bool light_display_update_in_progress(struct display_device *dev);
 // runs the same poll the scheduler's periodic task does, just inline
 extern void light_display_wait_for_update(struct display_device *dev);
 // true if any registered display device currently rendering through ctx has an async
-// update in flight. callers should check this before rend_context_swap_buffers(ctx) --
+// update in flight. callers should check this before light_draw_context_swap_buffers(ctx) --
 // swapping into a buffer a driver is still reading from would tear the in-flight frame
-extern bool light_display_render_context_busy(struct rend_context *ctx);
+extern bool light_display_render_context_busy(struct light_draw_context *ctx);
 
 #endif

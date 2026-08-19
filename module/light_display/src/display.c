@@ -138,7 +138,7 @@ struct display_device *light_display_init_device_va(
         light_object_add_va(&dev->header, &device_root.header, format, args);
         return dev;
 }
-void light_display_set_render_context(struct display_device *dev, struct rend_context *ctx)
+void light_display_set_render_context(struct display_device *dev, struct light_draw_context *ctx)
 {
         light_trace("device: %s, ctx: %s", dev->header.id, ctx->name);
         dev->render_ctx = ctx;
@@ -224,22 +224,22 @@ static void _light_display_set_region_full(struct display_device *dev)
         dev->update_region.y1 = dev->height - 1;
 }
 // converts an inclusive LOGICAL rect into the equivalent inclusive PHYSICAL one, clamped
-// to the panel. rotation/flip are rend's business, so the mapping is asked of rend rather
+// to the panel. rotation/flip are light_draw's business, so the mapping is asked of light_draw rather
 // than reimplemented here (and drivers stay in physical space, which is where they
 // already address the buffer)
 static void _light_display_set_region_logical(struct display_device *dev,
-                                                rend_point2d p0, rend_point2d p1)
+                                                light_draw_point2d p0, light_draw_point2d p1)
 {
-        rend_point2d min, max;
-        rend_transform_rect(dev->render_ctx, p0, p1, &min, &max);
+        light_draw_point2d min, max;
+        light_draw_transform_rect(dev->render_ctx, p0, p1, &min, &max);
 
         // BOTH corners are clamped, not just the far one. a logical coordinate outside the
-        // canvas transforms to a negative physical coordinate, which rend_point2d's uint16_t
+        // canvas transforms to a negative physical coordinate, which light_draw_point2d's uint16_t
         // turns into a huge positive value -- clamping only max then leaves x0 > x1, and an
         // inverted region has a meaningless chunk count. the update would never complete,
         // update_in_progress would never clear, and every later frame would be refused
         // because the render context looks permanently busy: a frozen display rather than
-        // one dropped frame. rend_transform_rect() guarantees min <= max componentwise, so
+        // one dropped frame. light_draw_transform_rect() guarantees min <= max componentwise, so
         // clamping both against the same bound cannot itself invert them
         dev->update_region.x0 = min.x < dev->width ? min.x : dev->width - 1;
         dev->update_region.y0 = min.y < dev->height ? min.y : dev->height - 1;
@@ -252,7 +252,7 @@ static void _light_display_update_start(struct display_device *dev)
 
         dev->update_in_progress = true;
         dev->update_chunk_time_ms = light_platform_get_time_since_init();
-        // captured once, so that a rend_context_swap_buffers() partway through can't leave
+        // captured once, so that a light_draw_context_swap_buffers() partway through can't leave
         // later chunks reading from a buffer the app has started redrawing
         dev->update_source_buffer = dev->render_ctx->buffer;
         dev->update_chunk_index = 0;
@@ -285,7 +285,7 @@ void light_display_command_update_async(struct display_device *dev)
         _light_display_update_start(dev);
 }
 void light_display_command_update_region(struct display_device *dev,
-                                                rend_point2d p0, rend_point2d p1)
+                                                light_draw_point2d p0, light_draw_point2d p1)
 {
         light_trace("device: %s", dev->header.id);
         _light_display_drain_async(dev);
@@ -294,7 +294,7 @@ void light_display_command_update_region(struct display_device *dev,
         _light_display_drain_async(dev);
 }
 void light_display_command_update_region_async(struct display_device *dev,
-                                                rend_point2d p0, rend_point2d p1)
+                                                light_draw_point2d p0, light_draw_point2d p1)
 {
         light_trace("device: %s", dev->header.id);
         _light_display_drain_async(dev);
@@ -309,7 +309,7 @@ void light_display_wait_for_update(struct display_device *dev)
 {
         _light_display_drain_async(dev);
 }
-bool light_display_render_context_busy(struct rend_context *ctx)
+bool light_display_render_context_busy(struct light_draw_context *ctx)
 {
         for(uint16_t i = 0; i < next_device_id; i++) {
                 struct display_device *dev = device_root.device[i];

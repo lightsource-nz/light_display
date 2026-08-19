@@ -14,7 +14,7 @@
 // order an update sweeps hardware columns in. FORWARD is the chip-native ascending order
 // (lowest column in the update region first); REVERSE goes the other way. this is purely
 // about the order bytes go out in -- it has no effect on which pixel data lands where.
-// defaults to FORWARD; callers that know how their rend_context's rotation maps onto
+// defaults to FORWARD; callers that know how their light_draw_context's rotation maps onto
 // physical columns (see crossfire.c) can pick whichever sweep order actually reads as
 // "top to bottom" for their mounting
 #define SH1107_SWEEP_FORWARD            0

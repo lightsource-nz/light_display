@@ -16,7 +16,7 @@ target_sources(
 # so light_display depends on it
 target_link_libraries(
         light_display PUBLIC
-        rend
+        light_draw
         light_ioport
         light_core
 )

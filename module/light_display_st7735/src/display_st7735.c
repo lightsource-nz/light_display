@@ -178,7 +178,7 @@ void light_display_st7735_clear_screen(struct display_device *dev, uint16_t colo
         }
 }
 
-// rend's 16bpp buffer is row-major RGB565 big-endian, matching RAMWR's streaming order
+// light_draw's 16bpp buffer is row-major RGB565 big-endian, matching RAMWR's streaming order
 // exactly, so a run of pixels goes to the transport straight from the render buffer -- but
 // only where that run is contiguous, which a region's rows are only at full panel width
 static bool _region_is_full_width(struct display_device *dev)

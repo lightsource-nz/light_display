@@ -43,7 +43,7 @@
 // the axes, MY flips the row order to get the 180. Combined with BGR for the HannStar variant
 #define ST7735_MADCTL_LANDSCAPE_ROT180  (ST7735_MADCTL_MV | ST7735_MADCTL_MY | ST7735_MADCTL_BGR)
 
-// COLMOD pixel format -- 16bpp/RGB565 is the only format this driver supports, matching rend's
+// COLMOD pixel format -- 16bpp/RGB565 is the only format this driver supports, matching light_draw's
 // 16bpp buffer layout byte for byte
 #define ST7735_COLMOD_16BPP             0x05
 

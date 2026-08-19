@@ -1,0 +1,17 @@
+{
+    "version": 6,
+    "include": ["../light_framework_mk3/cmake/light_presets/light_presets.json"],
+    "configurePresets": [
+        {
+            "name": "conf-light_display-host-debug",
+            "inherits": ["conf-light-host-debug"],
+            "binaryDir": "${sourceDir}/build"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "conf-light_display-host-debug",
+            "configurePreset": "conf-light_display-host-debug"
+        }
+    ]
+}

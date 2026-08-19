@@ -223,7 +223,7 @@ static uint16_t _sh1107_async_chunks_per_poll(struct display_device *dev)
 // assembles one column's worth of page bytes into state->update_page_buf, then kicks off a
 // non-blocking burst send for it.
 //
-// rend's buffer is row-major with horizontal bit-packing (each byte holds 8 pixels from
+// light_draw's buffer is row-major with horizontal bit-packing (each byte holds 8 pixels from
 // one row: buffer[y * width_bytes + x/8], bit x%8 set for the LEFTMOST pixel of that
 // group), but SH1107 RAM in vertical addressing mode is column/page addressed, where each
 // byte written covers 8 *vertically* stacked pixels within a single 1-pixel-wide column --

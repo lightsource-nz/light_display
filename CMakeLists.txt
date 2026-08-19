@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.18)
 #   This file is added two different ways, and it has to work both times.
 #
 #   NORMALLY it is pulled in by a consuming project that has already added the framework, so
-# light_core, light_ioport and rend are defined by the time we get here and there is nothing to
+# light_core and light_ioport are defined by the time we get here and there is nothing to
 # resolve -- the whole file reduces to the add_subdirectory() list at the bottom.
 #
 #   STANDALONE (cmake -S . -B build) it is the top-level project, and it has to stand up the
@@ -36,19 +36,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
         add_subdirectory(${LIGHT_PATH} light_framework)
 
-        #   font-crusher, BEFORE rend and for rend's benefit. rend declares FONT_CRUSHER_PATH
-        # itself but defaults it relative to ITSELF, which lands under its own directory and
-        # misses any real checkout; Findcrush.cmake then falls back to fetching font-crusher
-        # from GitHub and building it, which is what a standalone configure here failed on
-        # before this line existed. OPTIONAL, because that fetch is a legitimate fallback for
-        # someone who has no local checkout -- this only makes a local one win.
+        #   font-crusher, for module/light_draw's demo (see its own CMakeLists.txt). light_draw
+        # declares FONT_CRUSHER_PATH itself but defaults it relative to ITSELF, which lands two
+        # directories too deep under module/light_draw and misses any real sibling checkout;
+        # Findcrush.cmake then falls back to fetching font-crusher from GitHub and building it,
+        # which is what a standalone configure here failed on before this line existed.
+        # OPTIONAL, because that fetch is a legitimate fallback for someone who has no local
+        # checkout -- this only makes a local one win.
         light_resolve_project(FONT_CRUSHER font-crusher OPTIONAL)
-
-        #   light_display links rend for its render contexts. rend is not part of this group and
-        # is not vendored here -- it is resolved the same way everything else is, so a sibling
-        # checkout needs no configuration at all
-        light_resolve_project(REND rend)
-        add_subdirectory(${REND_PATH} rend)
 endif()
 
 #   EVERY module, unconditionally, and that is deliberate rather than lazy. All of these except
@@ -65,6 +60,7 @@ endif()
 # generate time and would accept either order, but declaring a dependency after its dependent
 # reads as an accident to anyone editing this later.
 add_subdirectory(module/light_display)
+add_subdirectory(module/light_draw)
 add_subdirectory(module/light_backlight)
 add_subdirectory(module/light_display_sh1106)
 add_subdirectory(module/light_display_sh1107)

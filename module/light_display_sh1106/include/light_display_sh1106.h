@@ -20,7 +20,7 @@
 // (lowest page in the update region first); REVERSE goes the other way. page (not column) is the
 // outer/bursted dimension for SH1106, since it's the column address that auto-increments within
 // a page -- the opposite of SH1107, where the page address auto-increments within a column.
-// defaults to FORWARD; callers that know how their rend_context's rotation maps onto physical
+// defaults to FORWARD; callers that know how their light_draw_context's rotation maps onto physical
 // pages can pick whichever sweep order actually reads as "top to bottom" for their mounting
 #define SH1106_SWEEP_FORWARD            0
 #define SH1106_SWEEP_REVERSE            1

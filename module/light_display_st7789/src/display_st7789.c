@@ -146,7 +146,7 @@ void light_display_st7789_clear_screen(struct display_device *dev, uint16_t colo
         }
 }
 
-// rend's 16bpp buffer is row-major RGB565 big-endian, matching ST7789's native RAMWR
+// light_draw's 16bpp buffer is row-major RGB565 big-endian, matching ST7789's native RAMWR
 // streaming order exactly -- unlike the 1bpp OLED drivers no per-pixel reassembly is
 // needed, so a run of pixels can be handed to the transport straight from the render
 // buffer. that only holds for a run that is contiguous in memory, which a region's rows

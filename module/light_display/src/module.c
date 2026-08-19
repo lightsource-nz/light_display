@@ -4,7 +4,7 @@
 
 static void _module_event(const struct light_module *module, uint8_t event, void *arg);
 Light_Module_Define(light_display, _module_event,
-                                &rend,
+                                &light_draw,
                                 &light_core);
 
 static uint8_t _module_task(struct light_application *app);
