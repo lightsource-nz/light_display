@@ -26,4 +26,14 @@
                 Preset = 'conf-light_display-host-debug'
                 Ctest  = $true
         }
+
+        #   same shape as screen-test's and light_ui's, same reasons. What this measures is
+        # what light_draw's geometry suite reaches -- the drawing, transform and clip code --
+        # plus the framework suites the standalone build registers; the panel drivers are
+        # INTERFACE-only and target-only, so they will not appear at all
+        Coverage = @{
+                Objects     = 'auto'
+                IgnoreRegex = '(/lib/|/usr/|sanitizers/|_deps/|/freetype/|/jansson/)'
+                CMakeArgs   = @('-DLIGHT_SYSTEM=HOST_OS', '-DLIGHT_PLATFORM=HOST')
+        }
 }
