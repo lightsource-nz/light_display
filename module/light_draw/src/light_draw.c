@@ -104,6 +104,14 @@ static void _recompute_transform(light_draw_context_t *ctx)
     // flip is applied first (in logical space), then rotate maps the (possibly
     // flipped) logical point onto the physical buffer
     ctx->transform = _compose_transform(flip, rotate);
+
+    //   any clip was expressed in the logical space this function has just redefined, so it
+    // is reset to the whole (new) canvas rather than carried across meaning something else.
+    // this is also what initialises it: _context_create() runs through here
+    ctx->clip_x0 = 0;
+    ctx->clip_y0 = 0;
+    ctx->clip_x1 = ctx->dim_x - 1;
+    ctx->clip_y1 = ctx->dim_y - 1;
 }
 // maps a LOGICAL (dim_x, dim_y)-bounded coordinate onto the PHYSICAL
 // (phys_dim_x, phys_dim_y)-bounded buffer via ctx->transform (see light_draw.h for the
@@ -369,7 +377,11 @@ uint32_t _get_pixel(const light_draw_context_t *ctx, light_draw_point2d p)
 // wrapping, computing each candidate coordinate as a signed value first
 static void _set_pixel_clipped(const light_draw_context_t *ctx, int32_t x, int32_t y, uint32_t color)
 {
-    if(x < 0 || y < 0 || x >= ctx->dim_x || y >= ctx->dim_y)
+    // against the context's clip rather than the raw canvas: the clip defaults to the whole
+    // canvas and can never exceed it (set_clip clamps), so this is the same buffer-safety
+    // check it always was, plus whatever the caller narrowed it to
+    if(x < (int32_t)ctx->clip_x0 || y < (int32_t)ctx->clip_y0
+                    || x > (int32_t)ctx->clip_x1 || y > (int32_t)ctx->clip_y1)
         return;
     _set_pixel(ctx, (light_draw_point2d) { (uint16_t)x, (uint16_t)y }, color);
 }
@@ -392,13 +404,14 @@ void _set_octant_pixels(const light_draw_context_t *ctx, light_draw_point2d cent
 static void _set_span_clipped(const light_draw_context_t *ctx, int32_t x0, int32_t x1, int32_t y,
                               uint32_t color)
 {
-    if(y < 0 || y >= (int32_t)ctx->dim_y)
+    // the context's clip, not the raw canvas -- see _set_pixel_clipped()
+    if(y < (int32_t)ctx->clip_y0 || y > (int32_t)ctx->clip_y1)
         return;
     if(x0 > x1) { int32_t t = x0; x0 = x1; x1 = t; }
-    if(x1 < 0 || x0 >= (int32_t)ctx->dim_x)
+    if(x1 < (int32_t)ctx->clip_x0 || x0 > (int32_t)ctx->clip_x1)
         return;
-    if(x0 < 0) x0 = 0;
-    if(x1 > (int32_t)ctx->dim_x - 1) x1 = ctx->dim_x - 1;
+    if(x0 < (int32_t)ctx->clip_x0) x0 = ctx->clip_x0;
+    if(x1 > (int32_t)ctx->clip_x1) x1 = ctx->clip_x1;
     for(int32_t x = x0; x <= x1; x++)
         _set_pixel(ctx, (light_draw_point2d) { (uint16_t)x, (uint16_t)y }, color);
 }
@@ -513,6 +526,26 @@ void _context_set_flip(light_draw_context_t *ctx, uint8_t flip)
 {
     ctx->flip = flip;
     _recompute_transform(ctx);
+}
+
+void _context_set_clip(light_draw_context_t *ctx, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+    //   clamped to the canvas, which is what lets _set_pixel_clipped() test ONLY the clip:
+    // a clip can never authorise a write the canvas would have refused. a degenerate
+    // rectangle (x0 > x1) is allowed through the same arithmetic and simply clips everything
+    if(x1 > ctx->dim_x - 1) x1 = ctx->dim_x - 1;
+    if(y1 > ctx->dim_y - 1) y1 = ctx->dim_y - 1;
+    ctx->clip_x0 = x0;
+    ctx->clip_y0 = y0;
+    ctx->clip_x1 = x1;
+    ctx->clip_y1 = y1;
+}
+void _context_clear_clip(light_draw_context_t *ctx)
+{
+    ctx->clip_x0 = 0;
+    ctx->clip_y0 = 0;
+    ctx->clip_x1 = ctx->dim_x - 1;
+    ctx->clip_y1 = ctx->dim_y - 1;
 }
 
 // TODO implement using light_draw_draw_point so point radius setting is observed
@@ -679,7 +712,10 @@ void _draw_line(const light_draw_context_t *ctx, light_draw_point2d p0, light_dr
 
     while (1)
     {
-        _set_pixel(ctx, p, ctx->color_fg);
+        // clipped, so a line participates in the context clip like every other primitive --
+        // rect borders are drawn as lines, and a scrolled widget's border has to stop at
+        // its container's edge exactly where its fill does
+        _set_pixel_clipped(ctx, p.x, p.y, ctx->color_fg);
         err2 = 2 * error;
 
         if(err2 >= dy) {
@@ -724,7 +760,11 @@ void _draw_text(const light_draw_context_t *ctx,
                     for(uint8_t x = 0; x < font->char_width; x++) {
                         uint8_t byte = glyph[y * pitch + x / 8];
                         if((byte >> (7 - (x % 8))) & 1) {
-                            _set_pixel(ctx, (light_draw_point2d) { pen.x + x, pen.y + y }, ctx->color_fg);
+                            //   clipped, which does two jobs: text participates in the
+                            // context clip, and a glyph walked past the canvas edge is now
+                            // dropped HERE rather than being an out-of-bounds buffer write
+                            // callers had to pre-guard against
+                            _set_pixel_clipped(ctx, pen.x + x, pen.y + y, ctx->color_fg);
                         }
                     }
                 }

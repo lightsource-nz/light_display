@@ -21,6 +21,8 @@ light_draw_context_t *_context_create(const uint8_t *name, uint16_t width, uint1
 void _context_set_font(light_draw_context_t *ctx, const light_draw_font_t *font);
 void _context_set_rotation(light_draw_context_t *ctx, uint8_t rotation);
 void _context_set_flip(light_draw_context_t *ctx, uint8_t flip);
+void _context_set_clip(light_draw_context_t *ctx, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+void _context_clear_clip(light_draw_context_t *ctx);
 void _context_enable_double_buffer(light_draw_context_t *ctx);
 bool _context_swap_buffers(light_draw_context_t *ctx);
 

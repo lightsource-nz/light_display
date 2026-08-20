@@ -86,6 +86,16 @@ typedef struct light_draw_context {
     uint8_t point_radius;
     uint16_t color_fg;
     uint16_t color_bg;
+    //   the clip rectangle, in LOGICAL coordinates, inclusive. every primitive that goes
+    // through the clipped pixel/span paths -- rects, circles, arcs, lines, text -- draws
+    // nothing outside it, which is what lets a caller render a shape at its full geometry
+    // and have it CUT OFF at an edge rather than redrawn smaller (a scrolled widget half
+    // outside its container is the motivating case). defaults to the whole canvas, and is
+    // reset to it whenever rotation or flip changes, since those redefine the space the
+    // clip was expressed in. does NOT apply to light_draw_draw_clear() or the blits, which work on
+    // the physical buffer wholesale
+    uint16_t clip_x0, clip_y0;
+    uint16_t clip_x1, clip_y1;
     const light_draw_font_t *font;
 } light_draw_context_t;
 
@@ -106,6 +116,14 @@ void light_draw_context_set_rotation(light_draw_context_t *ctx, uint8_t rotation
 // in either order. like rotation, existing buffer content is not transformed, so this
 // is meant to be called once during setup, before any drawing
 void light_draw_context_set_flip(light_draw_context_t *ctx, uint8_t flip);
+//   restricts drawing to the given rectangle (logical coordinates, inclusive; clamped to the
+// canvas) -- see clip_x0..clip_y1 on the context for exactly what honours it. set it, draw the
+// shapes that must not escape, then light_draw_context_clear_clip() -- the clip is context state,
+// and a caller that leaves it narrowed is quietly cropping everything drawn after it
+void light_draw_context_set_clip(light_draw_context_t *ctx,
+                uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+// puts the clip back to the whole canvas
+void light_draw_context_clear_clip(light_draw_context_t *ctx);
 // allocates a second buffer_length-sized buffer alongside ctx->buffer, for callers who
 // want to render the next frame while a previous one is still being flushed to a display
 // (see light_draw_context_swap_buffers()). optional -- most callers don't need this

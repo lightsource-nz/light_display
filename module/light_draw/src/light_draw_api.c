@@ -33,6 +33,17 @@ void light_draw_context_set_flip(light_draw_context_t *ctx, uint8_t flip)
     trace_log_f("flip=%d", flip);
     _context_set_flip(ctx, flip);
 }
+void light_draw_context_set_clip(light_draw_context_t *ctx,
+                uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+    trace_log_f("clip=(%d,%d)-(%d,%d)", x0, y0, x1, y1);
+    _context_set_clip(ctx, x0, y0, x1, y1);
+}
+void light_draw_context_clear_clip(light_draw_context_t *ctx)
+{
+    trace_log();
+    _context_clear_clip(ctx);
+}
 void light_draw_context_enable_double_buffer(light_draw_context_t *ctx)
 {
     trace_log();
