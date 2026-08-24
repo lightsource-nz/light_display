@@ -78,3 +78,9 @@ add_subdirectory(module/light_display_sh1107)
 add_subdirectory(module/light_display_po13)
 add_subdirectory(module/light_display_st7735)
 add_subdirectory(module/light_display_st7789)
+#   ssd1351 before ws15rgb, for the same reason sh1107 comes before po13: ws15rgb is the
+# Waveshare 1.5inch RGB OLED Module, which is SSD1351 glass plus a fixed geometry, and it
+# links the driver. CMake would accept either order, but declaring a dependency after its
+# dependent reads as an accident to anyone editing this later
+add_subdirectory(module/light_display_ssd1351)
+add_subdirectory(module/light_display_ws15rgb)
