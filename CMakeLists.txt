@@ -83,4 +83,8 @@ add_subdirectory(module/light_display_st7789)
 # links the driver. CMake would accept either order, but declaring a dependency after its
 # dependent reads as an accident to anyone editing this later
 add_subdirectory(module/light_display_ssd1351)
+#   the SSD1322, a greyscale sibling of the above. Independent of every other driver here --
+# it names no board and no panel module -- so its position in this list carries none of the
+# ordering significance the ssd1351/ws15rgb pair does
+add_subdirectory(module/light_display_ssd1322)
 add_subdirectory(module/light_display_ws15rgb)
