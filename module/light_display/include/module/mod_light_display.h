@@ -12,7 +12,13 @@
 #endif
 
 // TODO implement version fields properly
-#define LIGHT_DISPLAY_VERSION_STR           "0.1.0"
+//   the group's own version, derived from its git tags at build time -- see
+// light_project_version(LIGHT_DISPLAY) in the top-level CMakeLists. ONE VERSION PER REPOSITORY,
+// not per module: the drivers here are released together and could never sensibly differ. The
+// other modules in this group still carry their own "0.1.0" placeholders and should be pointed
+// at this same string.
+#include <light_display_version.h>
+#define LIGHT_DISPLAY_VERSION_STR           LIGHT_DISPLAY_VERSION_STRING
 
 #define LIGHT_DISPLAY_INFO_STR              "light_display v" LIGHT_DISPLAY_VERSION_STR
 

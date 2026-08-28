@@ -46,6 +46,30 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         light_resolve_project(FONT_CRUSHER font-crusher OPTIONAL)
 endif()
 
+#   THIS GROUP'S VERSION, derived from its own git tags exactly as the framework's is, and
+# compiled in as LIGHT_DISPLAY_VERSION_STRING.
+#
+#   OUTSIDE THE STANDALONE GUARD, and that matters: consumed by screen-test or crossfire, none of
+# the block above runs -- the framework is already added and the paths are already set by the
+# parent -- but the version and the checks below are wanted either way. What they need is that
+# the framework has been added by SOMEBODY, which is true in both arrangements by the time
+# control reaches here.
+light_project_version(PREFIX LIGHT_DISPLAY PATH "${CMAKE_CURRENT_LIST_DIR}")
+
+#   AND WHAT THIS GROUP NEEDS OF ITS DEPENDENCIES.
+#   two framework floors apply and the higher governs: 1.8.0 moved the command tree into
+# light_core and had Light_Application_Define() declare a root command, which everything built
+# against these modules now relies on -- but light_project_version() and this call are themselves
+# 1.9.0 API. Against anything older the failure is CMake's own "Unknown CMake command", since the
+# function that would have explained it is the missing one.
+light_require_project_version(LIGHT 1.9.0)
+#   font-crusher only if a local checkout was found. It is OPTIONAL above precisely so that
+# somebody without one still builds, by letting Findcrush.cmake fetch a copy -- and a fetched
+# copy is not a working tree this can ask a version of
+if(FONT_CRUSHER_PATH)
+        light_require_project_version(FONT_CRUSHER 1.0.0)
+endif()
+
 #   EVERY module, unconditionally, and that is deliberate rather than lazy. All of these except
 # light_display are INTERFACE libraries: they contribute no sources and compile nothing until a
 # target links them, so a consumer that wants one driver pays nothing for the other five. It is
