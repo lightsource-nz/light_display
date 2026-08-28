@@ -3,8 +3,9 @@
 
 #include <light.h>
 
-// TODO implement version fields properly
-#define LIGHT_BACKLIGHT_VERSION_STR       "0.1.0"
+// the repository's version, derived from its git tags -- see light_project_version(LIGHT_DISPLAY)
+#include <light_display_version.h>
+#define LIGHT_BACKLIGHT_VERSION_STR       LIGHT_DISPLAY_VERSION_STRING
 
 #define LIGHT_BACKLIGHT_INFO_STR          "light_backlight v" LIGHT_BACKLIGHT_VERSION_STR
 

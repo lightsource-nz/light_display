@@ -11,12 +11,10 @@
 #define CFG_LIGHT_DISPLAY_BUFFERING         DISPLAY_BUFFER_SINGLE
 #endif
 
-// TODO implement version fields properly
 //   the group's own version, derived from its git tags at build time -- see
 // light_project_version(LIGHT_DISPLAY) in the top-level CMakeLists. ONE VERSION PER REPOSITORY,
-// not per module: the drivers here are released together and could never sensibly differ. The
-// other modules in this group still carry their own "0.1.0" placeholders and should be pointed
-// at this same string.
+// not per module: the drivers here are released together and could never sensibly differ, so
+// every module in this group reports this same string.
 #include <light_display_version.h>
 #define LIGHT_DISPLAY_VERSION_STR           LIGHT_DISPLAY_VERSION_STRING
 
